@@ -1,69 +1,84 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ProductCard } from "@/components/product-card";
+import { navCategories, products } from "@/lib/placeholder-data";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex flex-col">
+      {/* Hero */}
+      <section className="relative overflow-hidden bg-brand-ink text-brand-paper">
+        <div
+          className="absolute inset-0 opacity-70"
+          style={{
+            background:
+              "radial-gradient(circle at 20% 20%, oklch(0.64 0.246 2 / 0.55), transparent 45%), radial-gradient(circle at 85% 70%, oklch(0.82 0.085 85 / 0.45), transparent 45%)",
+          }}
+          aria-hidden
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+        <div className="relative mx-auto flex max-w-7xl flex-col items-start gap-5 px-4 py-20 sm:py-28">
+          <Badge variant="sale">New Season</Badge>
+          <h1 className="text-display max-w-3xl text-5xl leading-[0.95] sm:text-7xl">
+            Shine loud.
+            <br />
+            <span className="text-brand-accent">Spend little.</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="max-w-md text-base text-brand-paper/80">
+            Trend-led fashion jewellery dropping every week. Earrings, necklaces, rings and more —
+            priced to stack.
           </p>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              size="lg"
+              className="bg-brand-accent px-6 text-brand-accent-foreground hover:bg-brand-accent/85"
+            >
+              Shop New In
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="border-brand-paper/30 bg-transparent px-6 text-brand-paper hover:bg-brand-paper/10 hover:text-brand-paper"
+            >
+              Shop Sale
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      {/* Category tiles */}
+      <section className="mx-auto w-full max-w-7xl px-4 py-12">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {navCategories.map((cat) => (
+            <Link
+              key={cat.name}
+              href={cat.href}
+              className="group/tile relative flex aspect-square items-end overflow-hidden rounded-lg p-4"
+              style={{ background: cat.image }}
+            >
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent transition-opacity duration-200 group-hover/tile:from-black/65" />
+              <span className="relative font-heading text-lg font-extrabold uppercase tracking-wide text-white transition-transform duration-200 ease-snappy group-hover/tile:translate-x-1">
+                {cat.name}
+              </span>
+            </Link>
+          ))}
         </div>
-      </main>
+      </section>
+
+      {/* Trending grid */}
+      <section className="mx-auto w-full max-w-7xl px-4 pb-20">
+        <div className="mb-6 flex items-end justify-between">
+          <h2 className="text-display text-3xl sm:text-4xl">Trending now</h2>
+          <Link href="/new" className="text-sm font-medium text-brand-accent hover:underline">
+            View all →
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 lg:grid-cols-4">
+          {products.map((product) => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
