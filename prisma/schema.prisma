@@ -1,0 +1,394 @@
+// Aussient — database schema (Prisma 7, PostgreSQL / Supabase).
+// Connection URLs live in prisma7.config.ts (CLI) and src/lib/prisma.ts (runtime).
+// Money is stored as Decimal(10,2) in AUD. Run `pnpm prisma migrate dev` to apply.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum ProductStatus {
+  DRAFT
+  LIVE
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum DiscountType {
+  PERCENT // % off
+  AMOUNT // fixed $ off
+  FREE_SHIPPING
+  BUY_X_GET_Y
+}
+
+enum DiscountScope {
+  ALL // whole store
+  CATEGORY // one category
+  PRODUCTS // hand-picked products
+}
+
+enum OrderStatus {
+  PAID
+  SHIPPED
+  CANCELLED
+  REFUNDED
+}
+
+// ── Core commerce ────────────────────────────────────────────
+
+/// People who can sign in: shoppers plus STAFF/ADMIN who run the store.
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String?
+  passwordHash String?
+  role         Role          @default(CUSTOMER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  orders       Order[]
+  addresses    Address[]
+  wishlist     Wishlist[]
+  reviews      Review[]
+  activityLogs ActivityLog[]
+}
+
+/// Top-level product groupings (e.g. Earrings) with a sort order and image.
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  image     String?
+  order     Int        @default(0)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  products  Product[]
+  discounts Discount[] // category-scoped discounts
+}
+
+/// A sellable item: pricing, stock, status (draft/live) and its category.
+model Product {
+  id          String               @id @default(cuid())
+  name        String
+  slug        String               @unique
+  description String?
+  price       Decimal              @db.Decimal(10, 2)
+  salePrice   Decimal?             @db.Decimal(10, 2)
+  stock       Int                  @default(0)
+  material    String?
+  status      ProductStatus        @default(DRAFT)
+  featured    Boolean              @default(false)
+  categoryId  String
+  category    Category             @relation(fields: [categoryId], references: [id])
+  media       ProductMedia[]
+  variants    ProductVariant[]
+  reviews     Review[]
+  wishlist    Wishlist[]
+  backInStock BackInStockRequest[]
+  orderItems  OrderItem[]
+  discounts   Discount[]           @relation("DiscountProducts") // product-scoped discounts
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([categoryId])
+}
+
+/// Images/videos for a product (Cloudinary URL), with alt text and sort order.
+model ProductMedia {
+  id        String    @id @default(cuid())
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  type      MediaType @default(IMAGE)
+  alt       String?
+  order     Int       @default(0)
+
+  @@index([productId])
+}
+
+/// A finish/colour option of a product (e.g. Gold) with its own SKU, price and stock.
+model ProductVariant {
+  id         String      @id @default(cuid())
+  productId  String
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name       String // finish / colour, e.g. "Gold"
+  sku        String?     @unique
+  price      Decimal?    @db.Decimal(10, 2)
+  salePrice  Decimal?    @db.Decimal(10, 2)
+  stock      Int         @default(0)
+  orderItems OrderItem[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([productId])
+}
+
+/// Promotions: coded or automatic, with type, scope, limits and a usage counter.
+model Discount {
+  id               String        @id @default(cuid())
+  code             String?       @unique // null = automatic offer (no code)
+  type             DiscountType
+  scope            DiscountScope @default(ALL)
+  value            Decimal?      @db.Decimal(10, 2) // percent or dollar amount
+  buyQuantity      Int? // "X" for BUY_X_GET_Y
+  getQuantity      Int? // "Y" for BUY_X_GET_Y
+  minSpend         Decimal?      @db.Decimal(10, 2)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  usageLimit       Int? // total redemptions allowed
+  perCustomerLimit Int?
+  firstOrderOnly   Boolean       @default(false)
+  timesUsed        Int           @default(0)
+  active           Boolean       @default(true)
+  categoryId       String? // when scope = CATEGORY
+  category         Category?     @relation(fields: [categoryId], references: [id])
+  products         Product[]     @relation("DiscountProducts") // when scope = PRODUCTS
+  orders           Order[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+/// A placed order: human-friendly number (AUS-1001), totals, status and Stripe link.
+model Order {
+  id              String      @id @default(cuid())
+  number          String      @unique // e.g. AUS-1001
+  userId          String? // null for guest checkout
+  user            User?       @relation(fields: [userId], references: [id])
+  email           String
+  name            String
+  phone           String?
+  shippingAddress Json // snapshot of the delivery address at checkout
+  items           OrderItem[]
+  subtotal        Decimal     @db.Decimal(10, 2)
+  discountTotal   Decimal     @default(0) @db.Decimal(10, 2)
+  shippingTotal   Decimal     @default(0) @db.Decimal(10, 2)
+  total           Decimal     @db.Decimal(10, 2)
+  discountId      String?
+  discount        Discount?   @relation(fields: [discountId], references: [id])
+  status          OrderStatus @default(PAID)
+  trackingNumber  String?
+  stripeSessionId String?     @unique
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+}
+
+/// One line on an order — snapshots name/price so history survives product edits.
+model OrderItem {
+  id          String          @id @default(cuid())
+  orderId     String
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?        @relation(fields: [productId], references: [id])
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+  name        String // snapshot of product name
+  variantName String? // snapshot of variant name
+  unitPrice   Decimal         @db.Decimal(10, 2)
+  quantity    Int
+  lineTotal   Decimal         @db.Decimal(10, 2)
+
+  @@index([orderId])
+}
+
+// ── Customer data ────────────────────────────────────────────
+
+/// Reusable delivery/billing addresses saved to a customer's account.
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String? // e.g. "Home"
+  fullName  String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  postcode  String
+  country   String   @default("Australia")
+  phone     String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// A product a customer has saved to their wishlist (one row per product).
+model Wishlist {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+/// A product rating + text review, hidden until an admin approves it.
+model Review {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  authorName String? // shown for guest reviews
+  rating     Int // 1–5
+  title      String?
+  body       String?
+  approved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([productId])
+}
+
+/// Email addresses signed up to the marketing newsletter.
+model NewsletterSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  createdAt      DateTime  @default(now())
+  unsubscribedAt DateTime?
+}
+
+/// "Email me when back in stock" requests for a product/variant.
+model BackInStockRequest {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId String?
+  email     String
+  notified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+}
+
+/// Audit trail of what each admin/staff member changed and when.
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String // e.g. "product.update"
+  entity    String? // e.g. "Product"
+  entityId  String?
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ── Admin-editable content (used in Prompt 10) ───────────────
+
+/// Single row of global store settings the admin can edit.
+model SiteSettings {
+  id                    String   @id @default("singleton")
+  storeName             String   @default("Aussient")
+  supportEmail          String?
+  currency              String   @default("AUD")
+  freeShippingThreshold Decimal? @db.Decimal(10, 2)
+  flatShippingRate      Decimal? @db.Decimal(10, 2)
+  socials               Json? // { instagram, tiktok, ... }
+  updatedAt             DateTime @updatedAt
+}
+
+/// Promotional banners (image + link) placed around the storefront.
+model Banner {
+  id        String    @id @default(cuid())
+  title     String?
+  subtitle  String?
+  image     String?
+  link      String?
+  placement String? // e.g. "home-hero"
+  active    Boolean   @default(true)
+  order     Int       @default(0)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+/// Editable navigation links (supports nesting via parent/children).
+model MenuItem {
+  id        String     @id @default(cuid())
+  label     String
+  url       String
+  location  String     @default("header") // header | footer | mobile
+  order     Int        @default(0)
+  parentId  String?
+  parent    MenuItem?  @relation("MenuChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children  MenuItem[] @relation("MenuChildren")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+/// Configurable blocks that make up the home page, in order.
+model HomeSection {
+  id        String   @id @default(cuid())
+  type      String // e.g. "hero", "product-grid", "banner"
+  title     String?
+  config    Json? // block-specific settings
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Freeform CMS pages (e.g. About, FAQs) reachable by slug.
+model Page {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  title          String
+  body           String?
+  published      Boolean  @default(false)
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+/// Timed modal popups (e.g. newsletter / sale announcement).
+model Popup {
+  id        String    @id @default(cuid())
+  title     String?
+  body      String?
+  image     String?
+  active    Boolean   @default(false)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+/// URL redirects (old path → new path) managed by the admin.
+model Redirect {
+  id         String   @id @default(cuid())
+  from       String   @unique
+  to         String
+  statusCode Int      @default(301)
+  createdAt  DateTime @default(now())
+}
+
+/// Editable transactional email templates, keyed by purpose.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. "order-confirmation"
+  subject   String
+  body      String
+  updatedAt DateTime @updatedAt
+}
