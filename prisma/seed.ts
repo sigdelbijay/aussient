@@ -117,12 +117,14 @@ async function main() {
   const passwordHash = await bcrypt.hash(adminPassword, 12);
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: { role: "ADMIN", passwordHash },
+    // The admin's email counts as confirmed; they still set up 2FA on first login.
+    update: { role: "ADMIN", passwordHash, emailVerified: new Date() },
     create: {
       email: adminEmail,
       name: "Aussient Admin",
       role: "ADMIN",
       passwordHash,
+      emailVerified: new Date(),
     },
   });
   console.log(`✓ Admin user ready: ${admin.email}`);

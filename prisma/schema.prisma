@@ -42,6 +42,11 @@ enum DiscountScope {
   PRODUCTS // hand-picked products
 }
 
+enum AuthTokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
 enum OrderStatus {
   PAID
   SHIPPED
@@ -53,13 +58,26 @@ enum OrderStatus {
 
 /// People who can sign in: shoppers plus STAFF/ADMIN who run the store.
 model User {
-  id           String        @id @default(cuid())
-  email        String        @unique
-  name         String?
-  passwordHash String?
-  role         Role          @default(CUSTOMER)
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime? // set when the confirm-email link is clicked (or via Google)
+  name          String?
+  image         String? // profile picture from Google
+  passwordHash  String? // null for Google-only accounts
+  role          Role      @default(CUSTOMER)
+
+  // Two-factor (authenticator app) — required for STAFF/ADMIN.
+  twoFactorSecret   String? // encrypted TOTP secret
+  twoFactorEnabled  Boolean @default(false)
+  twoFactorLastStep Int? // last accepted 30s time-step, blocks code reuse
+
+  // Bumped on password change/reset so older login sessions stop working.
+  sessionVersion Int @default(0)
+
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  accounts     Account[]
+  authTokens   AuthToken[]
   orders       Order[]
   addresses    Address[]
   wishlist     Wishlist[]
@@ -204,6 +222,53 @@ model OrderItem {
   lineTotal   Decimal         @db.Decimal(10, 2)
 
   @@index([orderId])
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+
+/// A linked sign-in provider for a user (e.g. their Google account), managed by Auth.js.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+/// One-time links emailed to users (confirm email, reset password). Only a hash is stored.
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      AuthTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, type])
+}
+
+/// Every sign-in attempt, used to lock an email out after too many failures.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String?
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
 }
 
 // ── Customer data ────────────────────────────────────────────
