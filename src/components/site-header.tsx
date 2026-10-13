@@ -8,14 +8,14 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { SearchBox } from "@/components/search-box";
 import { MobileMenu } from "@/components/mobile-menu";
+import { useBag } from "@/lib/bag-store";
 import type { MenuGroup } from "@/lib/storefront";
 
 export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
-  // Placeholder bag count — comes from the cart in a later prompt.
-  const bagCount = 2;
+  const { count: bagCount } = useBag();
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {

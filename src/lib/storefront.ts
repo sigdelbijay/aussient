@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/cache";
 import type { ProductSource } from "@/lib/home-sections";
+import { LOW_STOCK } from "@/lib/catalog-shared";
 
 /**
  * Cached reads for the public storefront (layout chrome + home page).
@@ -17,8 +18,14 @@ import type { ProductSource } from "@/lib/home-sections";
  * seed, Prisma Studio) show up on the next refresh.
  */
 
-const storefrontCache: typeof unstable_cache =
-  process.env.NODE_ENV === "development" ? (fn) => fn : unstable_cache;
+// The data cache outlives deploys, so bump this whenever the shape of cached
+// data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
+const CACHE_VERSION = 3;
+
+export const storefrontCache: typeof unstable_cache =
+  process.env.NODE_ENV === "development"
+    ? (fn) => fn
+    : (fn, keyParts, options) => unstable_cache(fn, [...(keyParts ?? []), `v${CACHE_VERSION}`], options);
 
 // ── Scheduling ──────────────────────────────────────────────────
 
@@ -60,6 +67,8 @@ export type SiteChrome = {
     newsletterHeading: string;
     newsletterText: string;
     footerPerks: string[];
+    freeShippingThreshold: number | null;
+    flatShippingRate: number | null;
     socials: Partial<Record<"instagram" | "tiktok" | "youtube" | "threads", string>>;
   };
   announcements: (Scheduled & { id: string; text: string; link: string | null })[];
@@ -99,6 +108,9 @@ export const getSiteChrome = storefrontCache(
         newsletterHeading: settings?.newsletterHeading ?? "Join the list",
         newsletterText: settings?.newsletterText ?? "",
         footerPerks: Array.isArray(settings?.footerPerks) ? (settings.footerPerks as string[]) : [],
+        freeShippingThreshold:
+          settings?.freeShippingThreshold == null ? null : Number(settings.freeShippingThreshold),
+        flatShippingRate: settings?.flatShippingRate == null ? null : Number(settings.flatShippingRate),
         socials: (settings?.socials as SiteChrome["settings"]["socials"]) ?? {},
       },
       announcements: banners
@@ -156,48 +168,88 @@ export type ProductCardData = {
   collection: string;
   price: number;
   compareAtPrice: number | null;
-  badge: "new" | "sale" | "low" | null;
+  /** Shown in this order: SALE, LOW STOCK, NEW. */
+  badges: ("sale" | "low" | "new")[];
   images: { url: string; alt: string }[];
-  swatches: { name: string; color: string }[];
+  /** One per finish/colour; `id` is the variant to add to the bag. */
+  swatches: {
+    id: string;
+    name: string;
+    color: string;
+    stock: number;
+    /** This finish's price (same as the product's unless it has its own). */
+    price: number;
+    compareAtPrice: number | null;
+  }[];
+  /** Units available across all finishes. */
+  stock: number;
 };
 
-const SWATCH_COLORS: Record<string, string> = {
+export const SWATCH_COLORS: Record<string, string> = {
   gold: "oklch(0.82 0.085 85)",
   silver: "oklch(0.85 0.005 280)",
   "rose gold": "oklch(0.78 0.08 30)",
   black: "oklch(0.2 0.02 280)",
 };
 
-const cardInclude = {
+export const swatchColor = (name: string) => SWATCH_COLORS[name.toLowerCase()] ?? "oklch(0.7 0 0)";
+
+export const cardInclude = {
   category: { select: { name: true } },
-  media: { where: { type: "IMAGE" }, orderBy: { order: "asc" }, take: 2 },
-  variants: { select: { name: true }, orderBy: { createdAt: "asc" } },
+  // The first two general (not finish-specific) photos: front + hover image.
+  media: { where: { type: "IMAGE", variantId: null }, orderBy: { order: "asc" }, take: 2 },
+  variants: {
+    select: { id: true, name: true, stock: true, price: true, salePrice: true },
+    orderBy: { createdAt: "asc" },
+  },
 } satisfies Prisma.ProductInclude;
 
-type CardProduct = Prisma.ProductGetPayload<{ include: typeof cardInclude }>;
+export type CardProduct = Prisma.ProductGetPayload<{ include: typeof cardInclude }>;
 
 const NEW_DAYS = 30;
 
-function toCard(p: CardProduct): ProductCardData {
+type Money = Prisma.Decimal | null;
+
+/** What shoppers pay, plus the original price to cross out when it's on sale. */
+function pricing(price: Prisma.Decimal, salePrice: Money) {
+  const onSale = salePrice !== null && Number(salePrice) < Number(price);
+  return {
+    price: Number(onSale ? salePrice : price),
+    compareAtPrice: onSale ? Number(price) : null,
+  };
+}
+
+export function toCard(p: CardProduct): ProductCardData {
   const onSale = p.salePrice !== null && Number(p.salePrice) < Number(p.price);
+  const base = pricing(p.price, p.salePrice);
   const isNew = Date.now() - p.createdAt.getTime() < NEW_DAYS * 24 * 60 * 60 * 1000;
+  // With variants, stock lives on each finish; otherwise on the product.
+  const stock = p.variants.length ? p.variants.reduce((n, v) => n + v.stock, 0) : p.stock;
   return {
     id: p.id,
     slug: p.slug,
     name: p.name,
     collection: p.category.name,
-    price: Number(onSale ? p.salePrice : p.price),
-    compareAtPrice: onSale ? Number(p.price) : null,
-    badge: onSale ? "sale" : p.stock > 0 && p.stock <= 5 ? "low" : isNew ? "new" : null,
+    ...base,
+    badges: [
+      ...(onSale ? (["sale"] as const) : []),
+      ...(stock > 0 && stock <= LOW_STOCK ? (["low"] as const) : []),
+      ...(isNew ? (["new"] as const) : []),
+    ],
     images: p.media.map((m) => ({ url: m.url, alt: m.alt ?? p.name })),
     swatches: p.variants.map((v) => ({
+      id: v.id,
       name: v.name,
-      color: SWATCH_COLORS[v.name.toLowerCase()] ?? "oklch(0.7 0 0)",
+      color: swatchColor(v.name),
+      stock: v.stock,
+      // Finishes without their own price use the product's price and sale price.
+      ...(v.price === null ? base : pricing(v.price, v.salePrice)),
     })),
+    stock,
   };
 }
 
-const live = { status: "LIVE" } satisfies Prisma.ProductWhereInput;
+export const live = { status: "LIVE" } satisfies Prisma.ProductWhereInput;
 
 async function loadProducts(source: ProductSource, limit: number, maxPrice?: number) {
   switch (source) {

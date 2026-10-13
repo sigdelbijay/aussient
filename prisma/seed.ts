@@ -12,7 +12,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
 const img = (label: string, bg: string, size = "800x1000") =>
   `https://placehold.co/${size}/${bg}/ffffff/png?text=${encodeURIComponent(label)}`;
 
-// Every seeded earring ships in these three finishes.
+// Finishes every seeded product comes in (each gets its own SKU, stock and photo).
 const finishes = [
   { name: "Gold", suffix: "GLD", bg: "c9a961" },
   { name: "Silver", suffix: "SLV", bg: "b8b8c0" },
@@ -22,90 +22,52 @@ const finishes = [
 type SeedProduct = {
   name: string;
   slug: string;
+  category: "earrings" | "necklaces" | "rings";
+  style: string;
+  material: string;
+  hypoallergenic?: boolean;
   description: string;
   price: number;
   salePrice?: number;
-  stock: number;
+  /** Stock per finish, in the order of `finishes`. */
+  stock: [number, number, number];
   featured?: boolean;
+  /** Slugs for "Complete the look". */
+  look?: string[];
+  /** Own price per finish (null = the product's price), in the order of `finishes`. */
+  finishPrices?: [number | null, number | null, number | null];
+  /** A product video, shown after the photos in the gallery. */
+  video?: string;
 };
 
-const earrings: SeedProduct[] = [
-  {
-    name: "Nova Crystal Hoops",
-    slug: "nova-crystal-hoops",
-    description: "Faceted crystal hoops that catch the light from every angle.",
-    price: 24.95,
-    stock: 120,
-    featured: true,
-  },
-  {
-    name: "Molten Dome Studs",
-    slug: "molten-dome-studs",
-    description: "Sculptural molten-finish dome studs for an everyday edge.",
-    price: 16.95,
-    stock: 200,
-  },
-  {
-    name: "Pearl Drop Danglers",
-    slug: "pearl-drop-danglers",
-    description: "Freshwater-look pearl drops on a delicate chain.",
-    price: 22.95,
-    salePrice: 17.95,
-    stock: 85,
-  },
-  {
-    name: "Celeste Huggie Hoops",
-    slug: "celeste-huggie-hoops",
-    description: "Snug pavé huggies that stack beautifully up the ear.",
-    price: 19.95,
-    stock: 150,
-    featured: true,
-  },
-  {
-    name: "Mini Star Studs",
-    slug: "mini-star-studs",
-    description: "Tiny star studs — the perfect second-piercing pick.",
-    price: 12.95,
-    stock: 300,
-  },
-  {
-    name: "Aurora Chandelier Drops",
-    slug: "aurora-chandelier-drops",
-    description: "Statement chandelier drops for a big night out.",
-    price: 34.95,
-    salePrice: 24.95,
-    stock: 40,
-  },
-  {
-    name: "Twist Chunky Hoops",
-    slug: "twist-chunky-hoops",
-    description: "Bold twisted hoops with a chunky, confident profile.",
-    price: 27.95,
-    stock: 95,
-    featured: true,
-  },
-  {
-    name: "Pavé Heart Studs",
-    slug: "pave-heart-studs",
-    description: "Sparkling pavé hearts that go with absolutely everything.",
-    price: 18.95,
-    stock: 175,
-  },
-  {
-    name: "Linked Chain Threaders",
-    slug: "linked-chain-threaders",
-    description: "Fluid chain threaders that move as you do.",
-    price: 21.95,
-    stock: 60,
-  },
-  {
-    name: "Baroque Pearl Hoops",
-    slug: "baroque-pearl-hoops",
-    description: "Irregular baroque pearls on a polished gold hoop.",
-    price: 29.95,
-    salePrice: 22.95,
-    stock: 50,
-  },
+const DETAILS = (size: string) =>
+  `Size: ${size}\nClosure: butterfly back / clasp as pictured\nNickel-free and lead-free\nSold individually as a pair or single piece as described`;
+const CARE =
+  "Keep away from water, perfume and lotions. Store in the Aussient pouch when you're not wearing it, and wipe gently with a soft cloth to keep it shining.";
+
+const products: SeedProduct[] = [
+  { name: "Nova Crystal Hoops", slug: "nova-crystal-hoops", category: "earrings", style: "hoops", material: "Gold-plated brass", description: "Faceted crystal hoops that catch the light from every angle.", price: 24.95, stock: [40, 40, 40], featured: true, look: ["bold-link-chain-necklace", "stacked-signet-ring"],
+    // Sample video + a pricier Gold finish, to show the gallery video and price changing with the finish.
+    finishPrices: [29.95, null, null], video: "https://res.cloudinary.com/demo/video/upload/q_auto,w_720/dog.mp4" },
+  { name: "Molten Dome Studs", slug: "molten-dome-studs", category: "earrings", style: "studs", material: "Sterling silver", hypoallergenic: true, description: "Sculptural molten-finish dome studs for an everyday edge.", price: 16.95, stock: [70, 70, 60], look: ["snake-chain-choker"] },
+  { name: "Pearl Drop Danglers", slug: "pearl-drop-danglers", category: "earrings", style: "drops", material: "Gold-plated brass", description: "Freshwater-look pearl drops on a delicate chain.", price: 22.95, salePrice: 17.95, stock: [30, 30, 25], look: ["pearl-pendant-necklace"] },
+  { name: "Celeste Huggie Hoops", slug: "celeste-huggie-hoops", category: "earrings", style: "huggies", material: "Stainless steel", hypoallergenic: true, description: "Snug pavé huggies that stack beautifully up the ear.", price: 19.95, stock: [50, 50, 50], featured: true, look: ["mini-star-studs", "pave-band-ring"] },
+  { name: "Mini Star Studs", slug: "mini-star-studs", category: "earrings", style: "studs", material: "Titanium", hypoallergenic: true, description: "Tiny star studs — the perfect second-piercing pick.", price: 12.95, stock: [100, 100, 100], look: ["celeste-huggie-hoops"] },
+  // Rose Gold sold out — selecting it should show "Notify me".
+  { name: "Aurora Chandelier Drops", slug: "aurora-chandelier-drops", category: "earrings", style: "drops", material: "Gold-plated brass", description: "Statement chandelier drops for a big night out.", price: 34.95, salePrice: 24.95, stock: [12, 8, 0], look: ["layered-coin-necklace"] },
+  { name: "Twist Chunky Hoops", slug: "twist-chunky-hoops", category: "earrings", style: "hoops", material: "Stainless steel", hypoallergenic: true, description: "Bold twisted hoops with a chunky, confident profile.", price: 27.95, stock: [35, 30, 30], featured: true, look: ["bold-link-chain-necklace"] },
+  { name: "Pavé Heart Studs", slug: "pave-heart-studs", category: "earrings", style: "studs", material: "Sterling silver", hypoallergenic: true, description: "Sparkling pavé hearts that go with absolutely everything.", price: 18.95, stock: [60, 60, 55], look: ["pave-band-ring"] },
+  // Entirely sold out — the whole product shows "Sold out".
+  { name: "Linked Chain Threaders", slug: "linked-chain-threaders", category: "earrings", style: "threaders", material: "Gold-plated brass", description: "Fluid chain threaders that move as you do.", price: 21.95, stock: [0, 0, 0] },
+  // Silver low on stock — shows "Only 3 left".
+  { name: "Baroque Pearl Hoops", slug: "baroque-pearl-hoops", category: "earrings", style: "hoops", material: "Gold-plated brass", description: "Irregular baroque pearls on a polished gold hoop.", price: 29.95, salePrice: 22.95, stock: [15, 3, 10], look: ["pearl-pendant-necklace"] },
+  { name: "Bold Link Chain Necklace", slug: "bold-link-chain-necklace", category: "necklaces", style: "chains", material: "Stainless steel", hypoallergenic: true, description: "A chunky paperclip chain that layers with everything.", price: 34.95, stock: [25, 25, 20], featured: true, look: ["twist-chunky-hoops"] },
+  { name: "Snake Chain Choker", slug: "snake-chain-choker", category: "necklaces", style: "chokers", material: "Gold-plated brass", description: "Liquid-smooth snake chain that sits right at the collarbone.", price: 27.95, stock: [30, 30, 30], look: ["molten-dome-studs"] },
+  { name: "Pearl Pendant Necklace", slug: "pearl-pendant-necklace", category: "necklaces", style: "pendants", material: "Sterling silver", hypoallergenic: true, description: "A single freshwater-look pearl on a fine trace chain.", price: 39.95, salePrice: 29.95, stock: [20, 20, 15], look: ["pearl-drop-danglers"] },
+  { name: "Layered Coin Necklace", slug: "layered-coin-necklace", category: "necklaces", style: "layered", material: "Gold-plated brass", description: "Two pre-layered chains with a hammered coin charm.", price: 44.95, stock: [4, 10, 10], look: ["aurora-chandelier-drops"] },
+  { name: "Stacked Signet Ring", slug: "stacked-signet-ring", category: "rings", style: "signet", material: "Stainless steel", hypoallergenic: true, description: "A modern oval signet that looks great stacked or solo.", price: 29.95, stock: [20, 20, 20], look: ["nova-crystal-hoops"] },
+  { name: "Pavé Band Ring", slug: "pave-band-ring", category: "rings", style: "stackable", material: "Sterling silver", hypoallergenic: true, description: "A slim band of sparkling pavé stones, made for stacking.", price: 24.95, stock: [30, 30, 30], look: ["pave-heart-studs"] },
+  { name: "Molten Statement Ring", slug: "molten-statement-ring", category: "rings", style: "statement", material: "Gold-plated brass", description: "A sculptural, molten-look cocktail ring with real presence.", price: 32.95, salePrice: 26.95, stock: [15, 15, 15], look: ["molten-dome-studs"] },
 ];
 
 async function main() {
@@ -152,34 +114,30 @@ async function main() {
   }
   console.log(`✓ ${categorySeed.length} categories ready`);
 
-  // ── Earrings (products + media + variants) ──────────────────
-  for (const p of earrings) {
+  // ── Products (with variants, per-finish photos and pairings) ──
+  const ids: Record<string, string> = {};
+  for (const p of products) {
+    const data = {
+      name: p.name,
+      description: p.description,
+      price: p.price,
+      salePrice: p.salePrice ?? null,
+      stock: p.stock.reduce((a, b) => a + b, 0),
+      material: p.material,
+      style: p.style,
+      hypoallergenic: p.hypoallergenic ?? false,
+      details: DETAILS(p.category === "rings" ? "Adjustable, fits sizes N–Q" : "As pictured"),
+      care: CARE,
+      status: "LIVE" as const,
+      featured: p.featured ?? false,
+      categoryId: categories[p.category],
+    };
     const product = await prisma.product.upsert({
       where: { slug: p.slug },
-      update: {
-        name: p.name,
-        description: p.description,
-        price: p.price,
-        salePrice: p.salePrice ?? null,
-        stock: p.stock,
-        material: "Gold-plated brass",
-        status: "LIVE",
-        featured: p.featured ?? false,
-        categoryId: categories.earrings,
-      },
-      create: {
-        name: p.name,
-        slug: p.slug,
-        description: p.description,
-        price: p.price,
-        salePrice: p.salePrice ?? null,
-        stock: p.stock,
-        material: "Gold-plated brass",
-        status: "LIVE",
-        featured: p.featured ?? false,
-        categoryId: categories.earrings,
-      },
+      update: data,
+      create: { ...data, slug: p.slug },
     });
+    ids[p.slug] = product.id;
 
     // Rebuild media + variants so re-running the seed stays consistent.
     await prisma.productMedia.deleteMany({ where: { productId: product.id } });
@@ -188,27 +146,42 @@ async function main() {
     await prisma.productMedia.createMany({
       data: [
         { productId: product.id, url: img(p.name, "1a1a1a"), alt: `${p.name} — front`, order: 0 },
-        {
-          productId: product.id,
-          url: img(`${p.name} 2`, "c9a961"),
-          alt: `${p.name} — on model`,
-          order: 1,
-        },
+        { productId: product.id, url: img(`${p.name} — on model`, "ff2d6f"), alt: `${p.name} — on model`, order: 1 },
+        ...(p.video
+          ? [{ productId: product.id, url: p.video, type: "VIDEO" as const, alt: `${p.name} — video`, order: 10 }]
+          : []),
       ],
     });
 
-    await prisma.productVariant.createMany({
-      data: finishes.map((f) => ({
-        productId: product.id,
-        name: f.name,
-        sku: `${p.slug.toUpperCase().replace(/-/g, "")}-${f.suffix}`,
-        price: p.price,
-        salePrice: p.salePrice ?? null,
-        stock: Math.round(p.stock / finishes.length),
-      })),
+    for (const [i, f] of finishes.entries()) {
+      // Variants inherit the product's price/sale price (null = same as product).
+      const variant = await prisma.productVariant.create({
+        data: {
+          productId: product.id,
+          name: f.name,
+          sku: `${p.slug.toUpperCase().replace(/-/g, "")}-${f.suffix}`,
+          price: p.finishPrices?.[i] ?? null,
+          stock: p.stock[i],
+        },
+      });
+      await prisma.productMedia.create({
+        data: {
+          productId: product.id,
+          variantId: variant.id,
+          url: img(`${p.name} — ${f.name}`, f.bg),
+          alt: `${p.name} in ${f.name}`,
+          order: 2 + i,
+        },
+      });
+    }
+  }
+  for (const p of products) {
+    await prisma.product.update({
+      where: { id: ids[p.slug] },
+      data: { completeTheLook: { set: (p.look ?? []).map((slug) => ({ id: ids[slug] })) } },
     });
   }
-  console.log(`✓ ${earrings.length} earrings ready (with media + 3 finishes each)`);
+  console.log(`✓ ${products.length} products ready (3 finishes each, per-finish photos, pairings)`);
 
   await seedStorefrontContent();
 }
@@ -263,36 +236,36 @@ async function seedStorefrontContent() {
     const header = [
       {
         label: "Earrings",
-        url: "/earrings",
+        url: "/collections/earrings",
         bg: "ff2d6f",
         links: [
-          ["Studs", "/earrings/studs"],
-          ["Hoops", "/earrings/hoops"],
-          ["Drops & Danglers", "/earrings/drops"],
-          ["Huggies", "/earrings/huggies"],
-          ["Ear Stacks", "/earrings/stacks"],
+          ["Studs", "/collections/earrings?style=studs"],
+          ["Hoops", "/collections/earrings?style=hoops"],
+          ["Drops & Danglers", "/collections/earrings?style=drops"],
+          ["Huggies", "/collections/earrings?style=huggies"],
+          ["Threaders", "/collections/earrings?style=threaders"],
         ],
       },
       {
         label: "Necklaces",
-        url: "/necklaces",
+        url: "/collections/necklaces",
         bg: "1a1a1a",
         links: [
-          ["Pendants", "/necklaces/pendants"],
-          ["Chains", "/necklaces/chains"],
-          ["Chokers", "/necklaces/chokers"],
-          ["Layered Sets", "/necklaces/layered"],
+          ["Pendants", "/collections/necklaces?style=pendants"],
+          ["Chains", "/collections/necklaces?style=chains"],
+          ["Chokers", "/collections/necklaces?style=chokers"],
+          ["Layered Sets", "/collections/necklaces?style=layered"],
         ],
       },
       {
         label: "Rings",
-        url: "/rings",
+        url: "/collections/rings",
         bg: "c9a961",
         links: [
-          ["Statement", "/rings/statement"],
-          ["Stackable", "/rings/stackable"],
-          ["Signet", "/rings/signet"],
-          ["Adjustable", "/rings/adjustable"],
+          ["Statement", "/collections/rings?style=statement"],
+          ["Stackable", "/collections/rings?style=stackable"],
+          ["Signet", "/collections/rings?style=signet"],
+          ["Adjustable", "/collections/rings?style=adjustable"],
         ],
       },
       {
@@ -300,9 +273,9 @@ async function seedStorefrontContent() {
         url: "/sale",
         bg: "ff2d6f",
         links: [
-          ["Up to 50% Off", "/sale/50-off"],
-          ["Last Chance", "/sale/last-chance"],
-          ["Under $20", "/sale/under-20"],
+          ["Up to 50% Off", "/sale"],
+          ["Last Chance", "/sale"],
+          ["Under $20", "/collections/all?price=under-20"],
         ],
       },
     ];
@@ -387,7 +360,7 @@ async function seedStorefrontContent() {
           headline: "Shine loud. Spend little.",
           subheading: "Trend-led fashion jewellery dropping every week — priced to stack.",
           image: img("Aussient — New Season", "1a1a1a", "1920x1080"),
-          button: { label: "Shop New In", href: "/new" },
+          button: { label: "Shop New In", href: "/new-in" },
           secondaryButton: { label: "Shop Sale", href: "/sale" },
         },
       },
@@ -396,18 +369,18 @@ async function seedStorefrontContent() {
         title: "Shop by style",
         config: {
           tiles: [
-            { label: "Studs", href: "/earrings/studs", image: img("Studs", "c9a961", "800x800") },
-            { label: "Hoops", href: "/earrings/hoops", image: img("Hoops", "ff2d6f", "800x800") },
-            { label: "Drops", href: "/earrings/drops", image: img("Drops", "1a1a1a", "800x800") },
+            { label: "Studs", href: "/collections/earrings?style=studs", image: img("Studs", "c9a961", "800x800") },
+            { label: "Hoops", href: "/collections/earrings?style=hoops", image: img("Hoops", "ff2d6f", "800x800") },
+            { label: "Drops", href: "/collections/earrings?style=drops", image: img("Drops", "1a1a1a", "800x800") },
             {
               label: "Huggies",
-              href: "/earrings/huggies",
+              href: "/collections/earrings?style=huggies",
               image: img("Huggies", "d9a7a0", "800x800"),
             },
             {
-              label: "Ear Stacks",
-              href: "/earrings/stacks",
-              image: img("Ear Stacks", "b8b8c0", "800x800"),
+              label: "Threaders",
+              href: "/collections/earrings?style=threaders",
+              image: img("Threaders", "b8b8c0", "800x800"),
             },
           ],
         },
@@ -415,7 +388,7 @@ async function seedStorefrontContent() {
       {
         type: "product-row",
         title: "New In",
-        config: { source: "new", limit: 10, viewAll: { label: "Shop all", href: "/new" } },
+        config: { source: "new", limit: 10, viewAll: { label: "Shop all", href: "/new-in" } },
       },
       {
         type: "promo-banner",
@@ -423,7 +396,7 @@ async function seedStorefrontContent() {
           image: img("Buy 3 Get 1 Free", "ff2d6f", "1600x600"),
           heading: "Buy 3, get 1 free",
           text: "Mix and match any earrings — the cheapest one's on us. Discount applied at checkout.",
-          button: { label: "Shop earrings", href: "/earrings" },
+          button: { label: "Shop earrings", href: "/collections/earrings" },
         },
       },
       // Scheduled ahead of time: appears on Black Friday and disappears after Cyber Monday.
@@ -455,7 +428,7 @@ async function seedStorefrontContent() {
           source: "under",
           maxPrice: 20,
           limit: 10,
-          viewAll: { label: "Shop all", href: "/sale/under-20" },
+          viewAll: { label: "Shop all", href: "/collections/all?price=under-20" },
         },
       },
       {
@@ -481,25 +454,25 @@ async function seedStorefrontContent() {
             {
               title: "For her",
               subtitle: "Pieces she'll wear every day",
-              href: "/gifts/for-her",
+              href: "/collections/earrings",
               image: img("For Her", "d9a7a0"),
             },
             {
               title: "Under $20",
               subtitle: "Little luxuries",
-              href: "/sale/under-20",
+              href: "/collections/all?price=under-20",
               image: img("Under $20", "ff2d6f"),
             },
             {
               title: "Gift sets",
               subtitle: "Ready to give",
-              href: "/gifts/sets",
+              href: "/collections/necklaces",
               image: img("Gift Sets", "1a1a1a"),
             },
             {
               title: "Stocking fillers",
               subtitle: "Small but mighty",
-              href: "/gifts/stocking-fillers",
+              href: "/collections/all?price=under-20",
               image: img("Stocking Fillers", "c9a961"),
             },
           ],
@@ -589,6 +562,52 @@ async function seedStorefrontContent() {
         approved: false,
       },
     });
+  }
+
+  // ── Sample order ────────────────────────────────────────────
+  // One shipped order for the admin, so "Write a review" can be tried on
+  // Nova Crystal Hoops. (It also counts as one sale in "Best selling".)
+  if ((await prisma.order.count()) === 0) {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: process.env.ADMIN_EMAIL! } });
+    const product = await prisma.product.findUniqueOrThrow({
+      where: { slug: "nova-crystal-hoops" },
+      include: { variants: { where: { name: "Silver" } } },
+    });
+    const variant = product.variants[0];
+    const unitPrice = Number(variant?.price ?? product.salePrice ?? product.price);
+    const shipping = 7.95;
+    await prisma.order.create({
+      data: {
+        number: "AUS-1000",
+        userId: admin.id,
+        email: admin.email,
+        name: admin.name ?? "Aussient Admin",
+        shippingAddress: {
+          fullName: admin.name ?? "Aussient Admin",
+          line1: "1 Sample Street",
+          city: "Sydney",
+          state: "NSW",
+          postcode: "2000",
+          country: "Australia",
+        },
+        subtotal: unitPrice,
+        shippingTotal: shipping,
+        total: unitPrice + shipping,
+        status: "SHIPPED",
+        items: {
+          create: {
+            productId: product.id,
+            variantId: variant?.id,
+            name: product.name,
+            variantName: variant?.name,
+            unitPrice,
+            quantity: 1,
+            lineTotal: unitPrice,
+          },
+        },
+      },
+    });
+    console.log("✓ Sample order AUS-1000 ready (admin bought Nova Crystal Hoops)");
   }
 
   console.log(
