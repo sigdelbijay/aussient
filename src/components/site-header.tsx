@@ -8,7 +8,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { SearchBox } from "@/components/search-box";
 import { MobileMenu } from "@/components/mobile-menu";
-import { useBag } from "@/lib/bag-store";
+import { openBag, useBag } from "@/lib/bag-store";
 import type { MenuGroup } from "@/lib/storefront";
 
 export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
@@ -97,7 +97,12 @@ export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
             <User className="size-5" />
           </Link>
           <Link
-            href="/bag"
+            href="/cart"
+            onClick={(e) => {
+              // Open the slide-out bag; the link still works without JavaScript.
+              e.preventDefault();
+              openBag();
+            }}
             aria-label={`Bag, ${bagCount} items`}
             className="relative grid size-10 place-items-center rounded-full transition-colors hover:bg-muted"
           >

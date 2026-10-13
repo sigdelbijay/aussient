@@ -44,6 +44,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
       name: product.name,
       variantName: swatch?.name ?? null,
       price,
+      compareAtPrice,
       image: front?.url ?? null,
     });
     setAdded(true);

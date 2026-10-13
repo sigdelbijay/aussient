@@ -564,6 +564,21 @@ async function seedStorefrontContent() {
     });
   }
 
+  // ── Discounts ───────────────────────────────────────────────
+  if ((await prisma.discount.count()) === 0) {
+    const earrings = await prisma.category.findUniqueOrThrow({ where: { slug: "earrings" } });
+    await prisma.discount.createMany({
+      data: [
+        // Automatic (no code): matches the "Buy 3 Get 1 Free" home banner.
+        { type: "BUY_X_GET_Y", scope: "CATEGORY", categoryId: earrings.id, buyQuantity: 3, getQuantity: 1 },
+        { code: "WELCOME10", type: "PERCENT", value: 10, firstOrderOnly: true, perCustomerLimit: 1 },
+        { code: "FREESHIP", type: "FREE_SHIPPING", minSpend: 30 },
+        { code: "SAVE5", type: "AMOUNT", value: 5, minSpend: 40 },
+      ],
+    });
+    console.log("✓ Discounts ready (auto Buy 3 Get 1 on earrings; WELCOME10, FREESHIP, SAVE5)");
+  }
+
   // ── Sample order ────────────────────────────────────────────
   // One shipped order for the admin, so "Write a review" can be tried on
   // Nova Crystal Hoops. (It also counts as one sale in "Best selling".)

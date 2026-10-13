@@ -61,6 +61,7 @@ export function ProductView({
         name: product.name,
         variantName: variant?.name ?? null,
         price: pay,
+        compareAtPrice: onSale ? price : null,
         image: media.find((m) => m.type === "IMAGE")?.url ?? null,
       },
       qty,

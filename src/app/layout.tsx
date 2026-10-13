@@ -4,6 +4,7 @@ import "./globals.css";
 import { AnnouncementBar } from "@/components/announcement-bar";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { BagPanel } from "@/components/bag/bag-panel";
 import { getLiveSiteChrome } from "@/lib/storefront";
 import { SITE_NAME, siteUrl } from "@/lib/seo";
 
@@ -52,6 +53,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <SiteHeader menu={chrome.headerMenu} />
         <main className="flex-1">{children}</main>
         <SiteFooter settings={chrome.settings} menu={chrome.footerMenu} />
+        <BagPanel />
       </body>
     </html>
   );
