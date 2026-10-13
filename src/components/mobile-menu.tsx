@@ -4,9 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown, Heart, User, X } from "lucide-react";
 import { cn } from "cn";
-import { navCategories } from "@/lib/placeholder-data";
+import type { MenuGroup } from "@/lib/storefront";
 
-export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function MobileMenu({
+  menu,
+  open,
+  onClose,
+}: {
+  menu: MenuGroup[];
+  open: boolean;
+  onClose: () => void;
+}) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
@@ -49,32 +57,34 @@ export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => vo
         </div>
 
         <nav className="flex-1 overflow-y-auto py-2">
-          {navCategories.map((cat) => {
-            const isOpen = expanded === cat.name;
+          {menu.map((cat) => {
+            const isOpen = expanded === cat.id;
             return (
-              <div key={cat.name} className="border-b border-border/60">
+              <div key={cat.id} className="border-b border-border/60">
                 <div className="flex items-center">
                   <Link
-                    href={cat.href}
+                    href={cat.url}
                     onClick={onClose}
                     className="flex-1 px-4 py-3 font-heading text-base font-bold uppercase tracking-wide"
                   >
-                    {cat.name}
+                    {cat.label}
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(isOpen ? null : cat.name)}
-                    aria-label={`Toggle ${cat.name}`}
-                    aria-expanded={isOpen}
-                    className="grid size-11 place-items-center text-muted-foreground"
-                  >
-                    <ChevronDown
-                      className={cn(
-                        "size-5 transition-transform duration-200 ease-snappy",
-                        isOpen && "rotate-180",
-                      )}
-                    />
-                  </button>
+                  {cat.children.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(isOpen ? null : cat.id)}
+                      aria-label={`Toggle ${cat.label}`}
+                      aria-expanded={isOpen}
+                      className="grid size-11 place-items-center text-muted-foreground"
+                    >
+                      <ChevronDown
+                        className={cn(
+                          "size-5 transition-transform duration-200 ease-snappy",
+                          isOpen && "rotate-180",
+                        )}
+                      />
+                    </button>
+                  )}
                 </div>
                 <div
                   className={cn(
@@ -83,14 +93,14 @@ export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => vo
                   )}
                 >
                   <ul className="min-h-0">
-                    {cat.links.map((link) => (
-                      <li key={link.href}>
+                    {cat.children.map((link) => (
+                      <li key={link.id}>
                         <Link
-                          href={link.href}
+                          href={link.url}
                           onClick={onClose}
                           className="block py-2 pl-8 pr-4 text-sm text-muted-foreground transition-colors hover:text-foreground"
                         >
-                          {link.name}
+                          {link.label}
                         </Link>
                       </li>
                     ))}

@@ -368,7 +368,10 @@ model SiteSettings {
   currency              String   @default("AUD")
   freeShippingThreshold Decimal? @db.Decimal(10, 2)
   flatShippingRate      Decimal? @db.Decimal(10, 2)
-  socials               Json? // { instagram, tiktok, ... }
+  socials               Json? // { instagram, tiktok, youtube, threads } → URLs
+  newsletterHeading     String?
+  newsletterText        String?
+  footerPerks           Json? // ["Free shipping over $50", ...]
   updatedAt             DateTime @updatedAt
 }
 
@@ -379,7 +382,7 @@ model Banner {
   subtitle  String?
   image     String?
   link      String?
-  placement String? // e.g. "home-hero"
+  placement String? // "announcement" = scrolling bar at the top of every page
   active    Boolean   @default(true)
   order     Int       @default(0)
   startsAt  DateTime?
@@ -393,7 +396,8 @@ model MenuItem {
   id        String     @id @default(cuid())
   label     String
   url       String
-  location  String     @default("header") // header | footer | mobile
+  image     String? // picture shown in the header mega menu
+  location  String     @default("header") // header | footer
   order     Int        @default(0)
   parentId  String?
   parent    MenuItem?  @relation("MenuChildren", fields: [parentId], references: [id], onDelete: Cascade)
@@ -402,16 +406,18 @@ model MenuItem {
   updatedAt DateTime   @updatedAt
 }
 
-/// Configurable blocks that make up the home page, in order.
+/// Configurable blocks that make up the home page, in order, optionally scheduled.
 model HomeSection {
-  id        String   @id @default(cuid())
-  type      String // e.g. "hero", "product-grid", "banner"
+  id        String    @id @default(cuid())
+  type      String // hero | product-row | category-tiles | promo-banner | image-text | countdown | reviews | instagram | gift-guide | newsletter
   title     String?
-  config    Json? // block-specific settings
-  order     Int      @default(0)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  config    Json? // block-specific settings (see src/lib/home-sections.ts)
+  order     Int       @default(0)
+  active    Boolean   @default(true)
+  startsAt  DateTime? // hidden before this time (null = no start limit)
+  endsAt    DateTime? // hidden after this time (null = no end limit)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 /// Freeform CMS pages (e.g. About, FAQs) reachable by slug.

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import { Heart, Plus } from "lucide-react";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/lib/format";
-import type { Product } from "@/lib/placeholder-data";
+import type { ProductCardData } from "@/lib/storefront";
 
 const badgeLabel = {
   new: "New",
@@ -14,10 +16,14 @@ const badgeLabel = {
   low: "Low Stock",
 } as const;
 
-export function ProductCard({ product }: { product: Product }) {
+// Card widths: 2-up on phones, ~4-up on desktop rows/grids.
+const SIZES = "(min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw";
+
+export function ProductCard({ product }: { product: ProductCardData }) {
   const [activeSwatch, setActiveSwatch] = useState(0);
   const [wishlisted, setWishlisted] = useState(false);
   const [front, back] = product.images;
+  const href = `/products/${product.slug}`;
 
   const discount =
     product.compareAtPrice && product.compareAtPrice > product.price
@@ -28,18 +34,28 @@ export function ProductCard({ product }: { product: Product }) {
     <div className="group/card flex flex-col">
       {/* Image area */}
       <div className="relative aspect-[4/5] overflow-hidden rounded-lg bg-muted">
-        {/* Primary image */}
-        <div
-          className="absolute inset-0 transition-opacity duration-200 ease-snappy group-hover/card:opacity-0"
-          style={{ background: front }}
-          aria-hidden
-        />
-        {/* Second photo, revealed on hover */}
-        <div
-          className="absolute inset-0 scale-105 opacity-0 transition-all duration-200 ease-snappy group-hover/card:scale-100 group-hover/card:opacity-100"
-          style={{ background: back }}
-          aria-hidden
-        />
+        <Link href={href} className="absolute inset-0" aria-label={product.name}>
+          {/* Primary image */}
+          {front && (
+            <Image
+              src={front.url}
+              alt={front.alt}
+              fill
+              sizes={SIZES}
+              className="object-cover transition-opacity duration-200 ease-snappy group-hover/card:opacity-0"
+            />
+          )}
+          {/* Second photo, revealed on hover */}
+          {back && (
+            <Image
+              src={back.url}
+              alt=""
+              fill
+              sizes={SIZES}
+              className="scale-105 object-cover opacity-0 transition-all duration-200 ease-snappy group-hover/card:scale-100 group-hover/card:opacity-100"
+            />
+          )}
+        </Link>
 
         {/* Badge */}
         {product.badge && (
@@ -96,9 +112,13 @@ export function ProductCard({ product }: { product: Product }) {
           ))}
         </div>
 
-        <h3 className="text-sm font-medium leading-snug">{product.name}</h3>
+        <h3 className="text-sm font-medium leading-snug">
+          <Link href={href} className="hover:underline">
+            {product.name}
+          </Link>
+        </h3>
         <p className="text-xs text-muted-foreground">
-          {product.swatches[activeSwatch]?.name} · {product.collection}
+          {[product.swatches[activeSwatch]?.name, product.collection].filter(Boolean).join(" · ")}
         </p>
 
         <div className="flex items-center gap-2">

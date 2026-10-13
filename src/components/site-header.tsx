@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown, Heart, Menu, ShoppingBag, User } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { SearchBox } from "@/components/search-box";
 import { MobileMenu } from "@/components/mobile-menu";
-import { navCategories } from "@/lib/placeholder-data";
+import type { MenuGroup } from "@/lib/storefront";
 
-export function SiteHeader() {
+export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
@@ -24,7 +25,7 @@ export function SiteHeader() {
     };
   }, [mobileOpen]);
 
-  const active = navCategories.find((c) => c.name === activeCategory) ?? null;
+  const active = menu.find((c) => c.id === activeCategory) ?? null;
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
@@ -49,27 +50,27 @@ export function SiteHeader() {
           className="ml-6 hidden h-full items-stretch lg:flex"
           onMouseLeave={() => setActiveCategory(null)}
         >
-          {navCategories.map((cat) => (
+          {menu.map((cat) => (
             <div
-              key={cat.name}
+              key={cat.id}
               className="flex items-stretch"
-              onMouseEnter={() => setActiveCategory(cat.name)}
+              onMouseEnter={() => setActiveCategory(cat.children.length > 0 ? cat.id : null)}
             >
               <Link
-                href={cat.href}
-                onFocus={() => setActiveCategory(cat.name)}
+                href={cat.url}
+                onFocus={() => setActiveCategory(cat.children.length > 0 ? cat.id : null)}
                 className={cn(
                   "flex items-center gap-1 px-3.5 font-heading text-sm font-bold uppercase tracking-wide transition-colors duration-200",
-                  cat.name === "Sale" && "text-brand-accent",
-                  activeCategory === cat.name && "text-brand-accent",
+                  cat.label.toLowerCase() === "sale" && "text-brand-accent",
+                  activeCategory === cat.id && "text-brand-accent",
                 )}
               >
-                {cat.name}
-                {cat.links.length > 0 && (
+                {cat.label}
+                {cat.children.length > 0 && (
                   <ChevronDown
                     className={cn(
                       "size-3.5 transition-transform duration-200 ease-snappy",
-                      activeCategory === cat.name && "rotate-180",
+                      activeCategory === cat.id && "rotate-180",
                     )}
                   />
                 )}
@@ -118,7 +119,7 @@ export function SiteHeader() {
             ? "pointer-events-auto scale-y-100 opacity-100"
             : "pointer-events-none -translate-y-1 opacity-0",
         )}
-        onMouseEnter={() => active && setActiveCategory(active.name)}
+        onMouseEnter={() => active && setActiveCategory(active.id)}
         onMouseLeave={() => setActiveCategory(null)}
       >
         {active && (
@@ -126,22 +127,22 @@ export function SiteHeader() {
             {/* Links */}
             <div>
               <div className="mb-4 flex items-baseline gap-3">
-                <h2 className="text-display text-xl">{active.name}</h2>
+                <h2 className="text-display text-xl">{active.label}</h2>
                 <Link
-                  href={active.href}
+                  href={active.url}
                   className="text-xs font-medium text-brand-accent hover:underline"
                 >
                   Shop all →
                 </Link>
               </div>
               <ul className="grid grid-cols-2 gap-x-6 gap-y-2">
-                {active.links.map((link) => (
-                  <li key={link.href}>
+                {active.children.map((link) => (
+                  <li key={link.id}>
                     <Link
-                      href={link.href}
+                      href={link.url}
                       className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                     >
-                      {link.name}
+                      {link.label}
                     </Link>
                   </li>
                 ))}
@@ -150,14 +151,16 @@ export function SiteHeader() {
 
             {/* Category picture */}
             <Link
-              href={active.href}
-              className="group/pic relative flex items-end overflow-hidden rounded-lg p-4"
-              style={{ background: active.image }}
+              href={active.url}
+              className="group/pic relative flex min-h-48 items-end overflow-hidden rounded-lg bg-brand-ink p-4"
             >
+              {active.image && (
+                <Image src={active.image} alt="" fill sizes="40vw" className="object-cover" />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
               <div className="relative">
                 <p className="font-heading text-lg font-extrabold uppercase text-white">
-                  Shop {active.name}
+                  Shop {active.label}
                 </p>
                 <Button size="sm" className="mt-2 bg-white text-brand-ink hover:bg-white/90">
                   Explore
@@ -168,7 +171,7 @@ export function SiteHeader() {
         )}
       </div>
 
-      <MobileMenu open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <MobileMenu menu={menu} open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </header>
   );
 }
