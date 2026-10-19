@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
 import { Archivo, Inter } from "next/font/google";
 import "./globals.css";
-import { AnnouncementBar } from "@/components/announcement-bar";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
-import { BagPanel } from "@/components/bag/bag-panel";
-import { getLiveSiteChrome } from "@/lib/storefront";
 import { SITE_NAME, siteUrl } from "@/lib/seo";
 
 // Bold display face for headings…
@@ -42,18 +37,12 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image" },
 };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
-  // Announcement bar, menus and footer come from the database (cached; see src/lib/storefront.ts).
-  const chrome = await getLiveSiteChrome();
-
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  // The shop's header/footer live in (shop)/layout.tsx; the admin has its own in admin/layout.tsx.
   return (
     <html lang="en" className={`${heading.variable} ${body.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
-        <AnnouncementBar items={chrome.announcements} />
-        <SiteHeader menu={chrome.headerMenu} />
-        <main className="flex-1">{children}</main>
-        <SiteFooter settings={chrome.settings} menu={chrome.footerMenu} />
-        <BagPanel />
+        {children}
       </body>
     </html>
   );

@@ -49,3 +49,13 @@ export async function requireStaff(returnTo = "/admin"): Promise<CurrentUser> {
   if (!user.mfa) redirect(`/login?callbackUrl=${encodeURIComponent(returnTo)}&reauth=1`);
   return user;
 }
+
+/**
+ * ADMIN only — for settings, payments and staff management, which STAFF
+ * can't change. Staff who try get a 404, like non-staff on /admin.
+ */
+export async function requireAdmin(returnTo = "/admin"): Promise<CurrentUser> {
+  const user = await requireStaff(returnTo);
+  if (user.role !== "ADMIN") notFound();
+  return user;
+}

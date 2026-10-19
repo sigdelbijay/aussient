@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Room for the admin CSV product import (files up to 2 MB).
+    serverActions: { bodySizeLimit: "3mb" },
+  },
   images: {
     // Serve modern, smaller formats where the browser supports them.
     formats: ["image/avif", "image/webp"],
