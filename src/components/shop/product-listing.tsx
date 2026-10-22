@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ProductCard } from "@/components/product-card";
-import { getFilterOptions, getListing, type Scope } from "@/lib/catalog";
+import { getListing, type Scope } from "@/lib/catalog";
 import { activeFilterCount, type Filters } from "@/lib/catalog-shared";
 import { FilterForm, SortSelect } from "./filter-form";
 
@@ -38,7 +38,7 @@ export async function ProductListing({
   basePath: string;
   keep?: Record<string, string>;
 }) {
-  const [listing, options] = await Promise.all([getListing(scope, filters), getFilterOptions(scope)]);
+  const listing = await getListing(scope, filters);
   const active = activeFilterCount(filters);
   const clearHref = keep ? `${basePath}?${new URLSearchParams(keep)}` : basePath;
 
@@ -67,7 +67,7 @@ export async function ProductListing({
         <aside aria-label="Filters">
           <FilterForm
             basePath={basePath}
-            options={options}
+            options={listing.filters}
             filters={filters}
             activeCount={active}
             keep={keep}

@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { FormAlert, SubmitButton } from "@/components/auth/form-bits";
-import { importProductsAction } from "@/lib/admin/product-actions";
+import { importProductsAction } from "@/lib/admin/import-actions";
 import { inputClass } from "./ui";
 
 export function ImportForm() {

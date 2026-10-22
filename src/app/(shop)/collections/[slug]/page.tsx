@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProductListing } from "@/components/shop/product-listing";
-import { getCategory, type Scope } from "@/lib/catalog";
+import { getListingPage, type Scope } from "@/lib/catalog";
 import { activeFilterCount, parseFilters } from "@/lib/catalog-shared";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, snippet } from "@/lib/seo";
 
 async function load(slug: string) {
-  if (slug === "all") return { name: "Shop all", image: null, scope: { kind: "all" } as Scope };
-  const category = await getCategory(slug);
-  if (!category) return null;
-  return { name: category.name, image: category.image, scope: { kind: "category", slug } as Scope };
+  if (slug === "all") return { name: "Shop all", image: null, description: null, scope: { kind: "all" } as Scope };
+  // A category, or else a collection (e.g. "Gifts under $50") with this web address.
+  return getListingPage(slug);
 }
 
 export async function generateMetadata({
@@ -22,7 +21,7 @@ export async function generateMetadata({
   const filtered = activeFilterCount(parseFilters(await searchParams)) > 0;
   return pageMetadata({
     title: collection.name,
-    description: `Shop ${collection.name.toLowerCase()} at Aussient — trend-led fashion jewellery with free shipping over $50 and 30-day returns.`,
+    description: snippet(collection.description || `Shop ${collection.name.toLowerCase()} at Aussient.`),
     path: `/collections/${slug}`,
     image: collection.image ? { url: collection.image, alt: collection.name } : null,
     // Filtered variations are for shoppers, not for Google's index.
@@ -42,6 +41,7 @@ export default async function CollectionPage({
   return (
     <ProductListing
       title={collection.name}
+      intro={collection.description ?? undefined}
       scope={collection.scope}
       filters={parseFilters(sp)}
       params={sp}

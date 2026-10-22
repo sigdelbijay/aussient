@@ -5,7 +5,7 @@ import Form from "next/form";
 import { SlidersHorizontal } from "lucide-react";
 import { cn } from "cn";
 import { PRICE_BUCKETS, SORTS, type Filters } from "@/lib/catalog-shared";
-import type { FilterOptions } from "@/lib/catalog";
+import type { FilterGroup } from "@/lib/catalog";
 
 export const FILTER_FORM_ID = "shop-filters";
 
@@ -26,7 +26,7 @@ export function FilterForm({
   keep,
 }: {
   basePath: string;
-  options: FilterOptions;
+  options: FilterGroup[];
   filters: Filters;
   activeCount: number;
   /** Extra params to carry along, e.g. the search query. */
@@ -45,44 +45,25 @@ export function FilterForm({
         )}
       </Group>
 
-      {options.colours.length > 0 && (
-        <Group title="Colour">
-          {options.colours.map((c) => (
-            <Choice key={c.value} type="checkbox" name="colour" value={c.value} checked={filters.colours.includes(c.value)}>
-              <span className="size-3.5 rounded-full ring-1 ring-inset ring-black/10" style={{ background: c.color }} />
-              {c.value}
-            </Choice>
-          ))}
-        </Group>
-      )}
-
-      {options.styles.length > 0 && (
-        <Group title="Style">
-          {options.styles.map((s) => (
-            <Choice key={s} type="checkbox" name="style" value={s} checked={filters.styles.includes(s)}>
-              <span className="capitalize">{s}</span>
-            </Choice>
-          ))}
-        </Group>
-      )}
-
-      {options.materials.length > 0 && (
-        <Group title="Material">
-          {options.materials.map((m) => (
-            <Choice key={m} type="checkbox" name="material" value={m} checked={filters.materials.includes(m)}>
-              {m}
-            </Choice>
-          ))}
-        </Group>
-      )}
-
-      {options.hasHypoallergenic && (
-        <Group title="Sensitive ears">
-          <Choice type="checkbox" name="hypoallergenic" value="1" checked={filters.hypoallergenic}>
-            Hypoallergenic only
-          </Choice>
-        </Group>
-      )}
+      {/* One group per option (Size, Colour…) and filterable spec (Material…), from the product types. */}
+      {options.map((group) => {
+        const chosen = new Set((filters.attrs[group.key] ?? []).map((v) => v.toLowerCase()));
+        return (
+          <Group key={group.key} title={group.label}>
+            {group.values.map((v) => (
+              <Choice key={v.value} type="checkbox" name={group.key} value={v.value} checked={chosen.has(v.value.toLowerCase())}>
+                {(v.color || v.image) && (
+                  <span
+                    className="size-3.5 shrink-0 rounded-full bg-cover bg-center ring-1 ring-inset ring-black/10"
+                    style={{ background: v.image ? `center / cover url("${v.image}")` : (v.color ?? undefined) }}
+                  />
+                )}
+                {v.value}
+              </Choice>
+            ))}
+          </Group>
+        );
+      })}
     </>
   );
 

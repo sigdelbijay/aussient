@@ -9,14 +9,17 @@ export const metadata: Metadata = { title: "Import products" };
 const COLUMNS: [string, string][] = [
   ["slug", "Web address. Matches an existing product to update it; blank = made from the name."],
   ["name", "Required."],
-  ["price, sale_price", "Numbers like 24.95. Leave sale_price blank when not on sale."],
-  ["category", "Category name or web address (required for new products)."],
+  ["type", "Product type name, e.g. Earrings, Watch, T-shirt (required for new products)."],
+  ["brand", "Optional. New brand names are added automatically."],
+  ["categories", "Category names or web addresses, separated by |."],
+  ["tags", "Optional words separated by |, e.g. gift | summer."],
   ["status", "live or draft (default draft)."],
-  ["stock", "Used when the product has no finishes."],
-  ["material, style, description, details, care, seo_title, seo_description", "Optional text."],
-  ["hypoallergenic, featured", "yes or no."],
+  ["featured", "yes or no."],
+  ["description, details, care, seo_title, seo_description", "Optional text."],
   ["images", "Photo/video URLs separated by |. New ones are added after existing photos."],
-  ["variant, variant_sku, variant_price, variant_sale_price, variant_stock", "One row per finish — repeat the product's columns on each row. Finishes are matched by name."],
+  ["spec:<label>", "One column per spec, e.g. spec:Material or spec:Case size. Yes/no specs take yes or no. A blank cell clears it."],
+  ["option1, option2, option3", "The variant's values for the type's options in order, e.g. M and Navy for a T-shirt (Size, Colour). Leave blank for products with no options."],
+  ["sku, price, sale_price, stock, weight_grams, barcode", "The variant. price is required, like 24.95. One row per variant — repeat the product's columns on each row."],
 ];
 
 export default async function ImportPage() {

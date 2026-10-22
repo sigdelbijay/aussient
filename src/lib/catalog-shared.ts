@@ -22,13 +22,18 @@ export type Sort = keyof typeof SORTS | "relevance";
 
 export type Filters = {
   price: PriceBucket | null;
-  colours: string[];
-  materials: string[];
-  styles: string[];
-  hypoallergenic: boolean;
+  /**
+   * Option and spec filters, by URL name: { colour: ["Navy"], "case-size": ["38 mm"] }.
+   * The names come from each product type's options and filterable specs
+   * (see filterKey in product-types.ts), so nothing here is product-specific.
+   */
+  attrs: Record<string, string[]>;
   sort: Sort;
   page: number;
 };
+
+/** URL params that aren't option/spec filters. */
+const RESERVED = new Set(["price", "sort", "page", "q", "fbclid", "gclid"]);
 
 export const PAGE_SIZE = 24;
 
@@ -48,12 +53,15 @@ export function parseFilters(params: Params, defaultSort: Sort = "newest"): Filt
   const price = one("price");
   const sort = one("sort");
   const page = Number.parseInt(one("page") ?? "1", 10);
+  const attrs: Record<string, string[]> = {};
+  for (const key of Object.keys(params).slice(0, 30)) {
+    if (RESERVED.has(key) || !/^[a-z0-9-]{1,40}$/.test(key)) continue;
+    const values = list(params[key]).map((v) => v.slice(0, 60));
+    if (values.length) attrs[key] = values;
+  }
   return {
     price: price && price in PRICE_BUCKETS ? (price as PriceBucket) : null,
-    colours: list(params.colour),
-    materials: list(params.material),
-    styles: list(params.style).map((s) => s.toLowerCase()),
-    hypoallergenic: one("hypoallergenic") === "1",
+    attrs,
     sort: sort && (sort in SORTS || sort === "relevance") ? (sort as Sort) : defaultSort,
     page: Number.isFinite(page) && page > 0 ? Math.min(page, 500) : 1,
   };
@@ -61,7 +69,5 @@ export function parseFilters(params: Params, defaultSort: Sort = "newest"): Filt
 
 /** Number of active filters (not counting sort/page), for the "Filters (2)" label. */
 export function activeFilterCount(f: Filters) {
-  return (
-    (f.price ? 1 : 0) + f.colours.length + f.materials.length + f.styles.length + (f.hypoallergenic ? 1 : 0)
-  );
+  return (f.price ? 1 : 0) + Object.values(f.attrs).reduce((n, values) => n + values.length, 0);
 }

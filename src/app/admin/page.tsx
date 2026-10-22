@@ -5,6 +5,7 @@ import { requireStaff } from "@/lib/auth/dal";
 import { LOW_STOCK } from "@/lib/catalog-shared";
 import { formatPrice } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
+import { variantLabel } from "@/lib/product-types";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -27,7 +28,7 @@ export default async function AdminDashboard() {
   const today = startOfToday();
   const paid = { in: ["PAID" as const, "SHIPPED" as const] };
 
-  const [sales, toShip, toShipCount, lowVariants, lowProducts, pendingReviews] = await Promise.all([
+  const [sales, toShip, toShipCount, lowVariants, pendingReviews] = await Promise.all([
     prisma.order.aggregate({
       where: { createdAt: { gte: today }, status: paid },
       _sum: { total: true },
@@ -43,23 +44,25 @@ export default async function AdminDashboard() {
     prisma.productVariant.findMany({
       where: { stock: { lte: LOW_STOCK }, product: { status: "LIVE" } },
       orderBy: { stock: "asc" },
-      include: { product: { select: { id: true, name: true } } },
-      take: 50,
-    }),
-    // Products without finishes keep their stock on the product itself.
-    prisma.product.findMany({
-      where: { status: "LIVE", stock: { lte: LOW_STOCK }, variants: { none: {} } },
-      orderBy: { stock: "asc" },
-      select: { id: true, name: true, stock: true },
+      include: {
+        product: { select: { id: true, name: true } },
+        option1: { select: { value: true } },
+        option2: { select: { value: true } },
+        option3: { select: { value: true } },
+      },
       take: 50,
     }),
     prisma.review.count({ where: { approved: false } }),
   ]);
 
-  const lowStock = [
-    ...lowVariants.map((v) => ({ key: v.id, productId: v.product.id, name: v.product.name, finish: v.name, stock: v.stock })),
-    ...lowProducts.map((p) => ({ key: p.id, productId: p.id, name: p.name, finish: null, stock: p.stock })),
-  ].sort((a, b) => a.stock - b.stock);
+  // Stock lives on variants (a product with no options has just one).
+  const lowStock = lowVariants.map((v) => ({
+    key: v.id,
+    productId: v.product.id,
+    name: v.product.name,
+    variant: variantLabel([v.option1?.value, v.option2?.value, v.option3?.value]),
+    stock: v.stock,
+  }));
 
   return (
     <>
@@ -120,7 +123,7 @@ export default async function AdminDashboard() {
               <thead>
                 <tr>
                   <th>Product</th>
-                  <th>Finish</th>
+                  <th>Variant</th>
                   <th>Left</th>
                 </tr>
               </thead>
@@ -132,7 +135,7 @@ export default async function AdminDashboard() {
                         {p.name}
                       </Link>
                     </td>
-                    <td className="text-muted-foreground">{p.finish ?? "—"}</td>
+                    <td className="text-muted-foreground">{p.variant ?? "—"}</td>
                     <td>{p.stock === 0 ? <span className="font-semibold text-destructive">Sold out</span> : p.stock}</td>
                   </tr>
                 ))}

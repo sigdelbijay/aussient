@@ -17,9 +17,13 @@ const LABELS: Record<string, string> = {
   "product.media.update": "Edited a photo",
   "product.media.reorder": "Reordered photos",
   "product.media.delete": "Removed a photo",
-  "product.variant.create": "Added a finish",
-  "product.variant.update": "Edited a finish",
-  "product.variant.delete": "Deleted a finish",
+  "product.variant.create": "Added a variant",
+  "product.variant.update": "Edited a variant",
+  "product.variant.delete": "Deleted a variant",
+  "product.option.create": "Added an option value",
+  "product.option.update": "Edited an option value",
+  "product.option.delete": "Deleted an option value",
+  "product.option.reorder": "Reordered option values",
   "category.create": "Created category",
   "category.update": "Edited category",
   "category.reorder": "Reordered categories",
@@ -34,11 +38,15 @@ type Detail = Record<string, unknown> | null;
 function describe(detail: Detail) {
   if (!detail) return null;
   const parts: string[] = [];
-  for (const key of ["name", "product", "finish", "from", "file"]) {
+  // "finish" is from older log entries (before products had option types).
+  for (const key of ["name", "product", "finish", "variant", "from", "file"]) {
     if (typeof detail[key] === "string") parts.push(key === "from" ? `from ${detail[key]}` : String(detail[key]));
   }
+  if (typeof detail.option === "string") parts.push(detail.value ? `${detail.option}: ${detail.value}` : detail.option);
   if (typeof detail.count === "number") parts.push(`${detail.count} files`);
-  if (typeof detail.created === "number") parts.push(`${detail.created} created, ${detail.updated} updated`);
+  if (typeof detail.created === "number") {
+    parts.push(typeof detail.updated === "number" ? `${detail.created} created, ${detail.updated} updated` : `${detail.created} created`);
+  }
   const changes = detail.changes as Record<string, [unknown, unknown]> | undefined;
   if (changes && Object.keys(changes).length) {
     parts.push(

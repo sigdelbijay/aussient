@@ -12,6 +12,7 @@ import { requireStaff } from "@/lib/auth/dal";
 import { LOW_STOCK } from "@/lib/catalog-shared";
 import { formatPrice } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
+import { pricing } from "@/lib/storefront";
 
 export const metadata: Metadata = { title: "Products" };
 
@@ -31,7 +32,9 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
         { name: { contains: q, mode: "insensitive" } },
         { slug: { contains: q, mode: "insensitive" } },
         { variants: { some: { sku: { contains: q, mode: "insensitive" } } } },
-        { category: { name: { contains: q, mode: "insensitive" } } },
+        { categories: { some: { name: { contains: q, mode: "insensitive" } } } },
+        { productType: { name: { contains: q, mode: "insensitive" } } },
+        { brand: { name: { contains: q, mode: "insensitive" } } },
       ],
     }),
   };
@@ -42,9 +45,10 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       include: {
-        category: { select: { name: true } },
+        productType: { select: { name: true } },
+        categories: { select: { name: true } },
         media: { where: { type: "IMAGE" }, orderBy: { order: "asc" }, take: 1 },
-        variants: { select: { stock: true } },
+        variants: { select: { stock: true, price: true, salePrice: true } },
       },
     }),
     prisma.product.count({ where }),
@@ -75,7 +79,7 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
       <Form action="/admin/products" className="mb-4 flex flex-wrap gap-2" role="search">
         <div className="relative min-w-60 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input type="search" name="q" defaultValue={q} placeholder="Search name, SKU or category" aria-label="Search products" className={cn(inputClass, "pl-9")} />
+          <input type="search" name="q" defaultValue={q} placeholder="Search name, SKU, type, brand or category" aria-label="Search products" className={cn(inputClass, "pl-9")} />
         </div>
         <select name="status" defaultValue={status ?? ""} aria-label="Status" className={cn(inputClass, "w-36")}>
           <option value="">All statuses</option>
@@ -97,7 +101,7 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
             <tr>
               <th className="w-16" />
               <th>Product</th>
-              <th>Category</th>
+              <th>Type</th>
               <th>Price</th>
               <th>Stock</th>
               <th>Status</th>
@@ -106,7 +110,12 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
           </thead>
           <tbody>
             {products.map((p) => {
-              const stock = p.variants.length ? p.variants.reduce((n, v) => n + v.stock, 0) : p.stock;
+              const stock = p.variants.reduce((n, v) => n + v.stock, 0);
+              // Price range across variants, at the price shoppers pay.
+              const prices = p.variants.map((v) => pricing(v.price, v.salePrice));
+              const low = Math.min(...prices.map((x) => x.price));
+              const high = Math.max(...prices.map((x) => x.price));
+              const onSale = prices.some((x) => x.compareAtPrice !== null);
               return (
                 <tr key={p.id}>
                   <td className="py-2!">
@@ -119,20 +128,17 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
                       {p.name}
                     </Link>
                     <span className="block text-xs text-muted-foreground">
-                      {p.variants.length ? `${p.variants.length} finishes` : "No finishes"}
+                      {p.variants.length === 1 ? "1 variant" : `${p.variants.length} variants`}
                       {p.featured && " · Featured"}
                     </span>
                   </td>
-                  <td>{p.category.name}</td>
                   <td>
-                    {p.salePrice ? (
-                      <>
-                        <span className="font-semibold text-brand-accent">{formatPrice(Number(p.salePrice))}</span>{" "}
-                        <span className="text-xs text-muted-foreground line-through">{formatPrice(Number(p.price))}</span>
-                      </>
-                    ) : (
-                      formatPrice(Number(p.price))
-                    )}
+                    {p.productType.name}
+                    <span className="block text-xs text-muted-foreground">{p.categories.map((c) => c.name).join(", ") || "No category"}</span>
+                  </td>
+                  <td className={cn(onSale && "font-semibold text-brand-accent")}>
+                    {p.variants.length === 0 ? "—" : low === high ? formatPrice(low) : `${formatPrice(low)} – ${formatPrice(high)}`}
+                    {onSale && <span className="block text-xs font-normal">On sale</span>}
                   </td>
                   <td className={cn(stock === 0 ? "font-semibold text-destructive" : stock <= LOW_STOCK && "font-semibold text-brand-accent")}>
                     {stock === 0 ? "Sold out" : stock}

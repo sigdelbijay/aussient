@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { MAX_CATEGORY_DEPTH } from "@/lib/category-tree";
 import { requireStaff } from "@/lib/auth/dal";
 import { diff, recordChange } from "./activity";
 import { fieldErrors, optionalText, type AdminFormState } from "./form";
@@ -18,7 +19,32 @@ const categorySchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(60),
   slug: optionalText(60),
   image: optionalText(500).refine((v) => v === null || /^https:\/\//.test(v), "Upload an image"),
+  parentId: z.preprocess((v) => v || null, id.nullable()),
 });
+
+/**
+ * Checks a category can go under `parentId`: not inside itself, and the tree
+ * stays at most 3 levels deep (counting any categories already inside it).
+ */
+async function checkParent(categoryId: string | undefined, parentId: string | null): Promise<string | null> {
+  if (!parentId) return null;
+  const all = await prisma.category.findMany({ select: { id: true, parentId: true } });
+  const depthOf = (cid: string | null): number => {
+    let depth = 0;
+    for (let c = all.find((x) => x.id === cid); c; c = all.find((x) => x.id === c!.parentId)) {
+      if (c.id === categoryId) return Infinity; // the parent is inside this category
+      depth++;
+    }
+    return depth;
+  };
+  const height = (cid: string | undefined): number =>
+    cid ? 1 + Math.max(0, ...all.filter((c) => c.parentId === cid).map((c) => height(c.id))) : 1;
+  if (!all.some((c) => c.id === parentId)) return "That parent category no longer exists";
+  const depth = depthOf(parentId);
+  if (depth === Infinity) return "A category can't go inside itself";
+  if (depth + height(categoryId) > MAX_CATEGORY_DEPTH) return `Categories can only be ${MAX_CATEGORY_DEPTH} levels deep`;
+  return null;
+}
 
 export async function saveCategoryAction(_prev: AdminFormState, formData: FormData): Promise<AdminFormState> {
   const user = await requireStaff();
@@ -27,6 +53,8 @@ export async function saveCategoryAction(_prev: AdminFormState, formData: FormDa
   const { id: categoryId, slug: wanted, ...data } = parsed.data;
   const taken = async (slug: string) =>
     !!(await prisma.category.findFirst({ where: { slug, ...(categoryId && { id: { not: categoryId } }) } }));
+  const parentProblem = await checkParent(categoryId, data.parentId);
+  if (parentProblem) return { error: "Please fix the highlighted fields.", fieldErrors: { parentId: parentProblem } };
 
   if (categoryId) {
     const before = await prisma.category.findUnique({ where: { id: categoryId } });
@@ -45,7 +73,8 @@ export async function saveCategoryAction(_prev: AdminFormState, formData: FormDa
     return { message: `${data.name} saved.` };
   }
 
-  const last = await prisma.category.aggregate({ _max: { order: true } });
+  // New categories go last among their siblings.
+  const last = await prisma.category.aggregate({ where: { parentId: data.parentId }, _max: { order: true } });
   const category = await prisma.category.create({
     data: { ...data, slug: await uniqueSlug(wanted || data.name, taken), order: (last._max.order ?? -1) + 1 },
   });
@@ -53,6 +82,7 @@ export async function saveCategoryAction(_prev: AdminFormState, formData: FormDa
   return { message: `${category.name} added.` };
 }
 
+/** Saves the order shown in the admin (parents before children); siblings are sorted by it in the shop. */
 export async function reorderCategoriesAction(orderedIds: string[]) {
   const user = await requireStaff();
   const ids = z.array(id).max(500).parse(orderedIds);
@@ -66,11 +96,14 @@ export async function deleteCategoryAction(categoryId: string): Promise<{ error?
   const user = await requireStaff();
   const category = await prisma.category.findUnique({
     where: { id: id.parse(categoryId) },
-    include: { _count: { select: { products: true } } },
+    include: { _count: { select: { products: true, children: true } } },
   });
   if (!category) return {};
+  if (category._count.children > 0) {
+    return { error: "Move or delete the categories inside it first." };
+  }
   if (category._count.products > 0) {
-    return { error: `Move its ${category._count.products} products to another category first.` };
+    return { error: `Take its ${category._count.products} products out of this category first (edit each product's categories).` };
   }
   await prisma.category.delete({ where: { id: category.id } });
   await recordChange(user, { action: "category.delete", entity: "Category", entityId: category.id, detail: { name: category.name } });

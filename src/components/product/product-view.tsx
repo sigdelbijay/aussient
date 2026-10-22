@@ -14,9 +14,16 @@ import { Gallery } from "./gallery";
 import { NotifyForm } from "./notify-form";
 import { Stars } from "./stars";
 
+type Detail = ProductDetail;
+type Variant = Detail["variants"][number];
+
+/** The first variant in stock (or just the first) — what the page starts on. */
+const startVariant = (p: Detail) => p.variants.find((v) => v.stock > 0) ?? p.variants[0];
+
 /**
- * The top of the product page: gallery + everything needed to buy. Picking a
- * finish swaps the photos, price and stock to that finish.
+ * The top of the product page: gallery + everything needed to buy. Shoppers
+ * pick a value for each option (e.g. Size, then Colour); that picks one
+ * variant, whose photos, price and stock are shown.
  */
 export function ProductView({
   product,
@@ -26,40 +33,58 @@ export function ProductView({
   /** Description / details / care / shipping, rendered under the buy box. */
   children: React.ReactNode;
 }) {
-  const [variantId, setVariantId] = useState(
-    () => (product.variants.find((v) => v.stock > 0) ?? product.variants[0])?.id ?? null,
-  );
+  // The chosen value id for each option slot (option1/2/3).
+  const [picked, setPicked] = useState<(string | null)[]>(() => startVariant(product).optionIds);
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
 
-  const variant = product.variants.find((v) => v.id === variantId) ?? null;
-  const price = variant ? variant.price : product.price;
-  const salePrice = variant ? variant.salePrice : product.salePrice;
+  const slots = product.options.map((o) => o.slot);
+  const matches = (v: Variant, choice: (string | null)[]) => slots.every((s) => v.optionIds[s] === choice[s]);
+  // null = that combination isn't sold (e.g. no XL in Navy).
+  const variant = product.variants.find((v) => matches(v, picked)) ?? null;
+
+  const { price, salePrice, stock } = variant ?? { ...startVariant(product), stock: 0 };
   const onSale = salePrice !== null && salePrice < price;
   const pay = onSale ? salePrice : price;
-  const stock = variant ? variant.stock : product.stock;
   const soldOut = stock <= 0;
   const maxQty = Math.max(1, Math.min(stock, MAX_QTY));
 
-  // This finish's own photos first, then the general ones.
-  const general = product.media.filter((m) => !m.variantId);
-  const own = variant ? product.media.filter((m) => m.variantId === variant.id) : [];
-  const media = [...own, ...general];
+  // Photos of the chosen values (e.g. the Navy photos) first, then the general ones.
+  const own = product.media.filter((m) => m.optionValueId && picked.includes(m.optionValueId));
+  const general = product.media.filter((m) => !m.optionValueId);
+  const media = own.length || general.length ? [...own, ...general] : product.media;
 
-  function choose(id: string) {
-    setVariantId(id);
+  /** Picks a value; if that combination doesn't exist, jumps to the closest one that does. */
+  function choose(slot: number, valueId: string) {
+    let next = [...picked];
+    next[slot] = valueId;
+    if (!product.variants.some((v) => matches(v, next))) {
+      const withValue = product.variants.filter((v) => v.optionIds[slot] === valueId);
+      const score = (v: Variant) => slots.filter((s) => v.optionIds[s] === next[s]).length + (v.stock > 0 ? 10 : 0);
+      const best = withValue.sort((a, b) => score(b) - score(a))[0];
+      if (best) next = [...best.optionIds];
+    }
+    setPicked(next);
     setQty(1);
     setAdded(false);
   }
 
+  /** Is this value buyable with the other choices as they are? */
+  function inStock(slot: number, valueId: string) {
+    const choice = [...picked];
+    choice[slot] = valueId;
+    return product.variants.some((v) => matches(v, choice) && v.stock > 0);
+  }
+
   function add() {
+    if (!variant) return;
     addToBag(
       {
         productId: product.id,
-        variantId: variant?.id ?? null,
+        variantId: variant.id,
         slug: product.slug,
         name: product.name,
-        variantName: variant?.name ?? null,
+        variantName: variant.label,
         price: pay,
         compareAtPrice: onSale ? price : null,
         image: media.find((m) => m.type === "IMAGE")?.url ?? null,
@@ -73,8 +98,8 @@ export function ProductView({
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-12">
       <div className="lg:sticky lg:top-24 lg:self-start">
-        {/* Remount on finish change so the gallery starts at that finish's first photo. */}
-        <Gallery key={variantId ?? "all"} media={media} />
+        {/* Remount when the chosen photos change so the gallery starts at the first one. */}
+        <Gallery key={own.map((m) => m.id).join() || "all"} media={media} />
       </div>
 
       <div className="flex flex-col gap-5">
@@ -117,43 +142,62 @@ export function ProductView({
           </p>
         </div>
 
-        {/* Finish / colour */}
-        {product.variants.length > 0 && (
-          <fieldset>
-            <legend className="mb-2 text-sm">
-              <span className="font-semibold">Finish:</span> {variant?.name}
-            </legend>
-            <div className="flex flex-wrap gap-2" role="radiogroup">
-              {product.variants.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={v.id === variantId}
-                  onClick={() => choose(v.id)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors duration-200",
-                    v.id === variantId
-                      ? "border-foreground bg-foreground/5 font-semibold"
-                      : "border-border hover:border-foreground/50",
-                    v.stock <= 0 && "text-muted-foreground",
-                  )}
-                >
-                  <span
-                    className="size-4 rounded-full ring-1 ring-inset ring-black/10"
-                    style={{ background: v.color }}
-                  />
-                  <span className={cn(v.stock <= 0 && "line-through")}>{v.name}</span>
-                  {v.stock <= 0 && <span className="sr-only">(sold out)</span>}
-                </button>
-              ))}
-            </div>
-          </fieldset>
+        {/* Options, e.g. Size and Colour */}
+        {product.options.map((option) => {
+          const chosen = option.values.find((v) => v.id === picked[option.slot]);
+          return (
+            <fieldset key={option.name}>
+              <legend className="mb-2 text-sm">
+                <span className="font-semibold">{option.name}:</span> {chosen?.value}
+              </legend>
+              <div className="flex flex-wrap gap-2" role="radiogroup">
+                {option.values.map((v) => {
+                  const available = inStock(option.slot, v.id);
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={v.id === picked[option.slot]}
+                      onClick={() => choose(option.slot, v.id)}
+                      className={cn(
+                        "flex min-h-9 min-w-11 items-center justify-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors duration-200",
+                        v.id === picked[option.slot]
+                          ? "border-foreground bg-foreground/5 font-semibold"
+                          : "border-border hover:border-foreground/50",
+                        !available && "text-muted-foreground",
+                      )}
+                    >
+                      {(v.color || v.image) && (
+                        <span
+                          className="size-4 rounded-full bg-cover bg-center ring-1 ring-inset ring-black/10"
+                          style={v.image ? { backgroundImage: `url("${v.image}")` } : { background: v.color ?? undefined }}
+                        />
+                      )}
+                      <span className={cn(!available && "line-through")}>{v.value}</span>
+                      {!available && <span className="sr-only">(sold out)</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          );
+        })}
+        {product.sizeGuide && (
+          <a
+            href="#size-guide"
+            onClick={() => document.getElementById("size-guide")?.setAttribute("open", "")}
+            className="-mt-2 w-fit text-sm underline underline-offset-2"
+          >
+            Size guide
+          </a>
         )}
 
         {/* Stock */}
         <p className="text-sm font-medium" aria-live="polite">
-          {soldOut ? (
+          {!variant ? (
+            <span className="text-muted-foreground">This combination isn&apos;t available</span>
+          ) : soldOut ? (
             <span className="text-muted-foreground">Sold out</span>
           ) : stock <= LOW_STOCK ? (
             <span className="text-brand-accent">Only {stock} left — order soon</span>
@@ -195,11 +239,11 @@ export function ProductView({
             className="h-12 flex-1 font-heading text-sm font-bold uppercase tracking-wide"
           >
             {added ? <Check /> : <ShoppingBag />}
-            {soldOut ? "Sold out" : added ? "Added to bag" : "Add to bag"}
+            {!variant ? "Unavailable" : soldOut ? "Sold out" : added ? "Added to bag" : "Add to bag"}
           </Button>
         </div>
 
-        {soldOut && <NotifyForm key={variantId ?? "product"} productId={product.id} variantId={variantId} />}
+        {variant && soldOut && <NotifyForm key={variant.id} productId={product.id} variantId={variant.id} />}
 
         <div className="mt-2 divide-y divide-border border-y border-border">{children}</div>
       </div>
