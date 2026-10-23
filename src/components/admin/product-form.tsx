@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { cn } from "cn";
 import { FormAlert } from "@/components/auth/form-bits";
@@ -57,6 +58,33 @@ export function ProductForm({
   const type = types.find((t) => t.id === typeId);
   const isNew = !values.id;
 
+  // Step 1 for new products: pick the type, which decides the specs and options.
+  if (isNew && !type) {
+    return (
+      <Panel title="1. What are you adding?" description="Pick the product type first — it decides which specs the product has and what shoppers pick.">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {types.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTypeId(t.id)}
+              className="rounded-lg border border-border p-3 text-left text-sm hover:border-brand-ink hover:bg-muted/50"
+            >
+              <span className="font-semibold">{t.name}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {t.optionNames.length ? `Shoppers pick ${t.optionNames.join(", ")}` : "No options"}
+                {t.specFields.length > 0 && ` · ${t.specFields.length} specs`}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Not listed? <Link href="/admin/product-types/new" className="underline">Add a product type</Link> first.
+        </p>
+      </Panel>
+    );
+  }
+
   return (
     <form onSubmit={onSubmit} className="grid gap-6">
       {values.id && <input type="hidden" name="id" value={values.id} />}
@@ -96,7 +124,14 @@ export function ProductForm({
           </Panel>
 
           {isNew && (
-            <Panel title="Price & stock" description="For the first variant. Options like sizes or colours (each with its own price and stock) can be added next.">
+            <Panel
+              title="Price & stock"
+              description={
+                type?.optionNames.length
+                  ? `For the first variant. After creating, add the ${type.optionNames.join(" and ")} values and click “Create variants” to make every combination.`
+                  : "This type has no options, so the product is one variant."
+              }
+            >
               <div className="grid gap-4 sm:grid-cols-4">
                 <AdminField label="Price ($)" error={err("price")} hint="Incl. GST">
                   <input name="price" inputMode="decimal" required placeholder="24.95" className={inputClass} aria-invalid={!!err("price")} />

@@ -132,6 +132,8 @@ export default async function EditProductPage({ params, searchParams }: PageProp
           }
         >
           <VariantsEditor
+            // Start fresh from the saved values after each save.
+            key={product.variants.map((v) => `${v.id}${v.updatedAt.getTime()}`).join() + values.map((v) => v.value).join()}
             productId={product.id}
             optionNames={optionNames}
             values={values}

@@ -534,6 +534,7 @@ model SiteSettings {
   metaDescription       String? // the site's default description in Google
   deliveryInfo          String? // "Delivery" section on product pages, one fact per line
   returnsInfo           String? // "Returns" section on product pages, one fact per line
+  lowStockAlert         Int      @default(5) // admin warns when a variant has this many or fewer left
   updatedAt             DateTime @updatedAt
 }
 

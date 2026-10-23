@@ -160,50 +160,70 @@ function toItem(p: Prisma.ProductGetPayload<{ include: typeof itemInclude }>): I
  */
 const getScopeItems = storefrontCache(
   async (scope: Exclude<Scope, { kind: "search" }>): Promise<Item[]> => {
-    const and: Prisma.ProductWhereInput[] = [live, { variants: { some: {} } }];
-    let under: number | null = null;
-    let over: number | null = null;
-
     switch (scope.kind) {
       case "category": {
         const all = await getCategories();
         const category = all.find((c) => c.slug === scope.slug);
         if (!category) return [];
-        and.push({ categories: { some: { id: { in: withDescendants(all, category.id) } } } });
-        break;
+        return loadItems([{ categories: { some: { id: { in: withDescendants(all, category.id) } } } }]);
       }
       case "brand":
-        and.push({ brand: { slug: scope.slug } });
-        break;
+        return loadItems([{ brand: { slug: scope.slug } }]);
       case "collection": {
         const c = await prisma.collection.findUnique({ where: { slug: scope.slug } });
         if (!c) return [];
-        if (c.type === "MANUAL") {
-          and.push({ collections: { some: { id: c.id } } });
-          break;
-        }
-        // Automatic: every rule that's set must match (no rules = every product).
-        if (c.ruleCategoryId) {
-          and.push({ categories: { some: { id: { in: withDescendants(await getCategories(), c.ruleCategoryId) } } } });
-        }
-        if (c.ruleProductTypeId) and.push({ productTypeId: c.ruleProductTypeId });
-        if (c.ruleBrandId) and.push({ brandId: c.ruleBrandId });
-        if (c.ruleTag) and.push({ tags: { has: c.ruleTag.toLowerCase() } });
-        if (c.ruleOnSale) and.push(onSaleWhere);
-        under = c.rulePriceUnder === null ? null : Number(c.rulePriceUnder);
-        over = c.rulePriceOver === null ? null : Number(c.rulePriceOver);
-        break;
+        if (c.type === "MANUAL") return loadItems([{ collections: { some: { id: c.id } } }]);
+        return ruleItems({
+          ...c,
+          rulePriceUnder: c.rulePriceUnder === null ? null : Number(c.rulePriceUnder),
+          rulePriceOver: c.rulePriceOver === null ? null : Number(c.rulePriceOver),
+        });
       }
+      default:
+        return loadItems([]);
     }
-
-    const rows = await prisma.product.findMany({ where: { AND: and }, include: itemInclude });
-    return rows
-      .map(toItem)
-      .filter((i) => (under === null || i.price < under) && (over === null || i.price > over));
   },
   ["scope-items"],
   { tags: [CACHE_TAGS.products] },
 );
+
+/** Live products (with at least one variant) matching every condition. */
+async function loadItems(and: Prisma.ProductWhereInput[]): Promise<Item[]> {
+  const rows = await prisma.product.findMany({ where: { AND: [live, { variants: { some: {} } }, ...and] }, include: itemInclude });
+  return rows.map(toItem);
+}
+
+/** An automatic collection's rules. Blank rules are ignored. */
+export type CollectionRules = {
+  ruleCategoryId: string | null;
+  ruleProductTypeId: string | null;
+  ruleBrandId: string | null;
+  ruleTag: string | null;
+  ruleOnSale: boolean;
+  rulePriceUnder: number | null;
+  rulePriceOver: number | null;
+};
+
+/** Live products matching every rule that's set (no rules = every product). */
+async function ruleItems(rules: CollectionRules): Promise<Item[]> {
+  const and: Prisma.ProductWhereInput[] = [];
+  if (rules.ruleCategoryId) {
+    and.push({ categories: { some: { id: { in: withDescendants(await getCategories(), rules.ruleCategoryId) } } } });
+  }
+  if (rules.ruleProductTypeId) and.push({ productTypeId: rules.ruleProductTypeId });
+  if (rules.ruleBrandId) and.push({ brandId: rules.ruleBrandId });
+  if (rules.ruleTag) and.push({ tags: { has: rules.ruleTag.toLowerCase() } });
+  if (rules.ruleOnSale) and.push(onSaleWhere);
+  // "Price under $X" compares the price shoppers pay (sale price if lower).
+  const { rulePriceUnder: under, rulePriceOver: over } = rules;
+  return (await loadItems(and)).filter((i) => (under === null || i.price < under) && (over === null || i.price > over));
+}
+
+/** For the admin's live preview: how many products match some (unsaved) rules, plus the first few. */
+export async function previewCollectionRules(rules: CollectionRules, sort: Sort) {
+  const items = sortItems(await ruleItems(rules), sort, "");
+  return { total: items.length, products: items.slice(0, 12).map((i) => i.card) };
+}
 
 /** Every search word must appear somewhere in the product's text. */
 function matchesSearch(item: Item, q: string) {
@@ -290,18 +310,10 @@ export type Listing = {
   filters: FilterGroup[];
 };
 
-export async function getListing(scope: Scope, filters: Filters): Promise<Listing> {
-  const all =
-    scope.kind === "search"
-      ? (await getScopeItems({ kind: "all" })).filter((i) => matchesSearch(i, scope.q))
-      : await getScopeItems(scope);
-  const groups = filterGroups(all, scope);
-  const known = new Set(groups.map((g) => g.key));
-  const items = all.filter((i) => matchesFilters(i, filters, known));
-
-  const q = scope.kind === "search" ? scope.q.toLowerCase() : "";
-  items.sort((a, b) => {
-    switch (filters.sort) {
+/** Sorts in place (and returns) items; `q` is the search text, for "relevance". */
+function sortItems(items: Item[], sort: Sort, q: string) {
+  return items.sort((a, b) => {
+    switch (sort) {
       case "price-asc":
         return a.price - b.price;
       case "price-desc":
@@ -318,6 +330,18 @@ export async function getListing(scope: Scope, filters: Filters): Promise<Listin
         return b.createdAt - a.createdAt;
     }
   });
+}
+
+export async function getListing(scope: Scope, filters: Filters): Promise<Listing> {
+  const all =
+    scope.kind === "search"
+      ? (await getScopeItems({ kind: "all" })).filter((i) => matchesSearch(i, scope.q))
+      : await getScopeItems(scope);
+  const groups = filterGroups(all, scope);
+  const known = new Set(groups.map((g) => g.key));
+  const items = all.filter((i) => matchesFilters(i, filters, known));
+
+  sortItems(items, filters.sort, scope.kind === "search" ? scope.q.toLowerCase() : "");
 
   const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   const page = Math.min(filters.page, pages);
@@ -367,7 +391,7 @@ export const getListingPage = storefrontCache(
     return {
       ...collection,
       scope: { kind: "collection", slug },
-      sort: collection.sort in SORTS ? (collection.sort as Sort) : "newest",
+      sort: Object.hasOwn(SORTS, collection.sort) ? (collection.sort as Sort) : "newest",
       trail: [],
       children: [],
     };

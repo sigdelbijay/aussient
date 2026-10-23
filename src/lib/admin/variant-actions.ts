@@ -277,3 +277,90 @@ export async function createMissingVariantsAction(productId: string): Promise<{ 
   });
   return { created: missing.length };
 }
+
+/** One row of the variants table (form values are strings). */
+export type VariantTableRow = {
+  id: string;
+  sku: string;
+  price: string;
+  salePrice: string;
+  stock: string;
+  weightGrams: string;
+  barcode: string;
+};
+
+const tableRowSchema = z
+  .object({
+    id,
+    sku: optionalText(60).transform((v) => v?.toUpperCase() ?? null),
+    price: money,
+    salePrice: optionalMoney,
+    stock: wholeNumber,
+    weightGrams: z.preprocess((v) => (v === "" || v === undefined ? null : v), z.coerce.number("Whole grams").int("Whole grams").min(0).max(1_000_000).nullable()),
+    barcode: optionalText(40),
+  })
+  .refine((d) => d.salePrice === null || d.salePrice < d.price, {
+    path: ["salePrice"],
+    message: "Must be lower than the price",
+  });
+
+/**
+ * Saves the whole variants table at once (SKU, price, sale price, stock,
+ * weight, barcode). Nothing is saved if any row has a problem.
+ */
+export async function saveVariantsAction(
+  productId: string,
+  rows: VariantTableRow[],
+): Promise<{ error?: string; rowErrors?: Record<string, Record<string, string>>; message?: string }> {
+  const user = await requireStaff();
+  const product = await loadProduct(id.parse(productId));
+  if (!product) return { error: "This product no longer exists." };
+  const input = z.array(z.unknown()).max(500).parse(rows);
+
+  const rowErrors: Record<string, Record<string, string>> = {};
+  const parsed: z.infer<typeof tableRowSchema>[] = [];
+  for (const raw of input) {
+    const r = tableRowSchema.safeParse(raw);
+    const rowId = (raw as { id?: unknown })?.id;
+    if (!r.success) {
+      if (typeof rowId === "string") rowErrors[rowId] = fieldErrors(r.error).fieldErrors;
+      continue;
+    }
+    if (!product.variants.some((v) => v.id === r.data.id)) return { error: "The variants have changed — reload the page." };
+    parsed.push(r.data);
+  }
+
+  // SKUs must be unique: within this table and across the whole shop.
+  const skus = parsed.filter((r) => r.sku);
+  for (const r of skus) {
+    if (skus.some((o) => o !== r && o.sku === r.sku)) (rowErrors[r.id] ??= {}).sku = "Used twice in this table";
+  }
+  const clashes = await prisma.productVariant.findMany({
+    where: { sku: { in: skus.map((r) => r.sku!) }, productId: { not: product.id } },
+    select: { sku: true },
+  });
+  for (const r of skus) if (clashes.some((c) => c.sku === r.sku)) (rowErrors[r.id] ??= {}).sku = "Another product uses this SKU";
+  if (Object.keys(rowErrors).length) return { error: "Please fix the highlighted cells.", rowErrors };
+
+  const changed = parsed
+    .map((r) => ({ row: r, before: product.variants.find((v) => v.id === r.id)! }))
+    .map(({ row, before }) => ({ row, before, changes: diff(before, row) }))
+    .filter((c) => Object.keys(c.changes).length);
+  if (changed.length === 0) return { message: "No changes to save." };
+
+  // Clear changed SKUs first so two variants can swap SKUs without a clash.
+  await prisma.$transaction([
+    prisma.productVariant.updateMany({ where: { id: { in: changed.map((c) => c.row.id) } }, data: { sku: null } }),
+    ...changed.map(({ row: { id: vid, ...data } }) => prisma.productVariant.update({ where: { id: vid }, data })),
+  ]);
+  await recordChange(user, {
+    action: "product.variant.update",
+    entity: "Product",
+    entityId: product.id,
+    detail: {
+      name: product.name,
+      variants: changed.map((c) => ({ variant: labelFor(product, slotsOf(c.before)), changes: c.changes })),
+    },
+  });
+  return { message: `${changed.length} ${changed.length === 1 ? "variant" : "variants"} saved.` };
+}

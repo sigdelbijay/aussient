@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader, Panel, Stat, TableWrap } from "@/components/admin/ui";
+import { lowStockAlert } from "@/lib/admin/settings";
 import { requireStaff } from "@/lib/auth/dal";
-import { LOW_STOCK } from "@/lib/catalog-shared";
 import { formatPrice } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { variantLabel } from "@/lib/product-types";
@@ -27,6 +27,7 @@ export default async function AdminDashboard() {
   await requireStaff("/admin");
   const today = startOfToday();
   const paid = { in: ["PAID" as const, "SHIPPED" as const] };
+  const LOW_STOCK = await lowStockAlert(); // set in Settings
 
   const [sales, toShip, toShipCount, lowVariants, pendingReviews] = await Promise.all([
     prisma.order.aggregate({
@@ -81,7 +82,7 @@ export default async function AdminDashboard() {
         <Stat
           label="Low stock"
           value={lowStock.length}
-          hint={pendingReviews ? <Link href="/admin/reviews" className="underline">{pendingReviews} reviews to approve</Link> : `${LOW_STOCK} or fewer left`}
+          hint={pendingReviews ? <Link href="/admin/reviews" className="underline">{pendingReviews} reviews to approve</Link> : `${LOW_STOCK} or fewer left (set in Settings)`}
         />
       </div>
 

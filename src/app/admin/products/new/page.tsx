@@ -7,9 +7,12 @@ import { productFormChoices } from "@/lib/admin/product-choices";
 
 export const metadata: Metadata = { title: "Add product" };
 
-export default async function NewProductPage() {
+export default async function NewProductPage({ searchParams }: PageProps<"/admin/products/new">) {
   await requireStaff("/admin/products/new");
+  const sp = await searchParams;
   const choices = await productFormChoices();
+  // ?type=<id> skips step 1 (e.g. from a product type's page).
+  const typeId = choices.types.find((t) => t.id === sp.type)?.id ?? "";
 
   return (
     <>
@@ -24,7 +27,7 @@ export default async function NewProductPage() {
       />
       {choices.types.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border bg-background px-4 py-16 text-center text-sm text-muted-foreground">
-          Add a product type first (e.g. run the seed) — it sets each product&apos;s options and specs.
+          <Link href="/admin/product-types/new" className="underline">Add a product type</Link> first — it sets each product&apos;s options and specs.
         </p>
       ) : (
         <ProductForm
@@ -34,7 +37,7 @@ export default async function NewProductPage() {
             name: "",
             slug: "",
             description: "",
-            productTypeId: "",
+            productTypeId: typeId,
             brandId: "",
             categoryIds: [],
             tags: "",

@@ -51,8 +51,10 @@ export async function saveCategoryAction(_prev: AdminFormState, formData: FormDa
   const parsed = categorySchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return fieldErrors(parsed.error);
   const { id: categoryId, slug: wanted, ...data } = parsed.data;
+  // Categories and collections share /collections/[slug], so check both.
   const taken = async (slug: string) =>
-    !!(await prisma.category.findFirst({ where: { slug, ...(categoryId && { id: { not: categoryId } }) } }));
+    !!(await prisma.category.findFirst({ where: { slug, ...(categoryId && { id: { not: categoryId } }) } })) ||
+    !!(await prisma.collection.findUnique({ where: { slug } }));
   const parentProblem = await checkParent(categoryId, data.parentId);
   if (parentProblem) return { error: "Please fix the highlighted fields.", fieldErrors: { parentId: parentProblem } };
 
@@ -61,7 +63,7 @@ export async function saveCategoryAction(_prev: AdminFormState, formData: FormDa
     if (!before) return { error: "This category no longer exists." };
     const slug = wanted ? slugify(wanted) : before.slug;
     if (slug !== before.slug && (await taken(slug))) {
-      return { error: "Please fix the highlighted fields.", fieldErrors: { slug: "Another category already uses this web address" } };
+      return { error: "Please fix the highlighted fields.", fieldErrors: { slug: "Another category or collection already uses this web address" } };
     }
     await prisma.category.update({ where: { id: categoryId }, data: { ...data, slug } });
     await recordChange(user, {

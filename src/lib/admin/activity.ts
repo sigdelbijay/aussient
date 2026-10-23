@@ -2,7 +2,7 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { refreshStorefront } from "@/lib/cache";
+import { refreshStorefront, type CACHE_TAGS } from "@/lib/cache";
 
 /**
  * Call at the end of EVERY admin change: records who did what in the activity
@@ -17,7 +17,8 @@ export async function recordChange(
     /** Short human summary plus any useful specifics (e.g. changed fields). */
     detail?: Prisma.InputJsonValue;
   },
-  { refreshShop = true }: { refreshShop?: boolean } = {},
+  /** Which cached shop data to refresh: "products" (default) and/or "content" (settings, menus, home). */
+  { refresh = ["products"] }: { refresh?: (keyof typeof CACHE_TAGS)[] } = {},
 ) {
   await prisma.activityLog.create({
     data: {
@@ -28,7 +29,7 @@ export async function recordChange(
       detail: change.detail,
     },
   });
-  if (refreshShop) refreshStorefront("products");
+  if (refresh.length) refreshStorefront(...refresh);
   revalidatePath("/admin", "layout");
 }
 

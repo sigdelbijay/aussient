@@ -8,8 +8,10 @@ import type { Prisma } from "@/generated/prisma/client";
 import { PageHeader, StatusPill, TableWrap, inputClass } from "@/components/admin/ui";
 import { buttonVariants } from "@/components/ui/button";
 import { duplicateProductAction } from "@/lib/admin/product-actions";
+import { productFormChoices } from "@/lib/admin/product-choices";
+import { lowStockAlert } from "@/lib/admin/settings";
 import { requireStaff } from "@/lib/auth/dal";
-import { LOW_STOCK } from "@/lib/catalog-shared";
+import { withDescendants } from "@/lib/catalog";
 import { formatPrice } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { pricing } from "@/lib/storefront";
@@ -24,9 +26,23 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
   const q = String(sp.q ?? "").trim().slice(0, 80);
   const status = sp.status === "LIVE" || sp.status === "DRAFT" ? sp.status : null;
   const page = Math.max(1, Number.parseInt(String(sp.page ?? "1"), 10) || 1);
+  const [choices, LOW_STOCK, categoryTree] = await Promise.all([
+    productFormChoices(),
+    lowStockAlert(),
+    prisma.category.findMany({ select: { id: true, name: true, slug: true, image: true, parentId: true } }),
+  ]);
+  // Filters must match a real choice, so anything else in the URL is ignored.
+  const pick = (value: unknown, list: { id: string }[]) => list.find((x) => x.id === value)?.id ?? null;
+  const typeId = pick(sp.type, choices.types);
+  const categoryId = pick(sp.category, choices.categories);
+  const brandId = sp.brand === "none" ? "none" : pick(sp.brand, choices.brands);
 
   const where: Prisma.ProductWhereInput = {
     ...(status && { status }),
+    ...(typeId && { productTypeId: typeId }),
+    // A category includes the categories inside it.
+    ...(categoryId && { categories: { some: { id: { in: withDescendants(categoryTree, categoryId) } } } }),
+    ...(brandId && { brandId: brandId === "none" ? null : brandId }),
     ...(q && {
       OR: [
         { name: { contains: q, mode: "insensitive" } },
@@ -54,7 +70,16 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
     prisma.product.count({ where }),
   ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const link = (p: number) => `/admin/products?${new URLSearchParams({ ...(q && { q }), ...(status && { status }), ...(p > 1 && { page: String(p) }) })}`;
+  const filtered = !!(q || status || typeId || categoryId || brandId);
+  const link = (p: number) =>
+    `/admin/products?${new URLSearchParams({
+      ...(q && { q }),
+      ...(status && { status }),
+      ...(typeId && { type: typeId }),
+      ...(categoryId && { category: categoryId }),
+      ...(brandId && { brand: brandId }),
+      ...(p > 1 && { page: String(p) }),
+    })}`;
 
   return (
     <>
@@ -81,7 +106,33 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input type="search" name="q" defaultValue={q} placeholder="Search name, SKU, type, brand or category" aria-label="Search products" className={cn(inputClass, "pl-9")} />
         </div>
-        <select name="status" defaultValue={status ?? ""} aria-label="Status" className={cn(inputClass, "w-36")}>
+        <select name="type" defaultValue={typeId ?? ""} aria-label="Product type" className={cn(inputClass, "w-auto")}>
+          <option value="">All types</option>
+          {choices.types.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        <select name="category" defaultValue={categoryId ?? ""} aria-label="Category" className={cn(inputClass, "w-auto")}>
+          <option value="">All categories</option>
+          {choices.categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {"— ".repeat(c.depth)}
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select name="brand" defaultValue={brandId ?? ""} aria-label="Brand" className={cn(inputClass, "w-auto")}>
+          <option value="">All brands</option>
+          <option value="none">No brand</option>
+          {choices.brands.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+        <select name="status" defaultValue={status ?? ""} aria-label="Status" className={cn(inputClass, "w-auto")}>
           <option value="">All statuses</option>
           <option value="LIVE">Live</option>
           <option value="DRAFT">Draft</option>
@@ -89,11 +140,16 @@ export default async function AdminProductsPage({ searchParams }: PageProps<"/ad
         <button type="submit" className={cn(buttonVariants({ variant: "outline" }), "h-10 px-4")}>
           Search
         </button>
+        {filtered && (
+          <Link href="/admin/products" className={cn(buttonVariants({ variant: "ghost" }), "h-10 px-3")}>
+            Clear
+          </Link>
+        )}
       </Form>
 
       {products.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border bg-background px-4 py-16 text-center text-sm text-muted-foreground">
-          {q || status ? "No products match." : "No products yet."}
+          {filtered ? "No products match." : "No products yet."}
         </p>
       ) : (
         <TableWrap>

@@ -12,6 +12,8 @@ import {
   reorderOptionValuesAction,
   saveOptionValueAction,
   saveVariantAction,
+  saveVariantsAction,
+  type VariantTableRow,
 } from "@/lib/admin/variant-actions";
 import { DeleteButton } from "./media-manager";
 import { inputClass } from "./ui";
@@ -177,10 +179,23 @@ function OptionValueForm({
 
 // ── Variants ────────────────────────────────────────────────────
 
+type TableRow = VariantTableRow & { label: string };
+const toTableRow = (v: VariantRow, values: OptionValueRow[]): TableRow => ({
+  id: v.id,
+  label: v.optionIds.map((vid) => values.find((x) => x.id === vid)?.value).filter(Boolean).join(" / ") || "Default",
+  sku: v.sku,
+  price: v.price,
+  salePrice: v.salePrice,
+  stock: String(v.stock),
+  weightGrams: v.weightGrams,
+  barcode: v.barcode,
+});
+
 /**
- * One row per buyable combination of option values, each with its own SKU,
- * price, sale price, stock, weight and barcode. A product with no options
- * has a single variant.
+ * Every buyable combination of option values in one table: edit SKU, price,
+ * sale price and stock, then "Save changes" saves them all. "Set for all"
+ * fills a column (saved with the rest). A product with no options has a
+ * single variant.
  */
 export function VariantsEditor({
   productId,
@@ -195,13 +210,37 @@ export function VariantsEditor({
 }) {
   const router = useRouter();
   const [busy, start] = useTransition();
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
+  const [rows, setRows] = useState(() => variants.map((v) => toTableRow(v, values)));
+  const [rowErrors, setRowErrors] = useState<Record<string, Record<string, string>>>({});
+  const [dirty, setDirty] = useState(false);
+  const [bulk, setBulk] = useState({ price: "", salePrice: "", stock: "" });
 
   // Only options that have values on this product are picked per variant.
   const used = optionNames.map((name, slot) => ({ name, slot, values: values.filter((v) => v.option === name) })).filter((o) => o.values.length);
   const combos = used.reduce((n, o) => n * o.values.length, 1);
   const missing = used.length ? Math.max(0, combos - variants.length) : 0;
-  const columns = `${used.map(() => "minmax(6.5rem,1fr)").join(" ")} minmax(7rem,1fr) 6rem 6rem 5rem 5.5rem minmax(7rem,1fr) 7.5rem`;
+
+  function edit(rowId: string, field: keyof VariantTableRow, value: string) {
+    setRows((rs) => rs.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)));
+    setDirty(true);
+  }
+  function setAll(field: "price" | "salePrice" | "stock") {
+    setRows((rs) => rs.map((r) => ({ ...r, [field]: bulk[field] })));
+    setDirty(true);
+    setNote({ text: "Filled in — click “Save changes” to keep it." });
+  }
+  function save() {
+    start(async () => {
+      const r = await saveVariantsAction(productId, rows.map((r) => ({ id: r.id, sku: r.sku, price: r.price, salePrice: r.salePrice, stock: r.stock, weightGrams: r.weightGrams, barcode: r.barcode })));
+      setRowErrors(r.rowErrors ?? {});
+      setNote({ text: r.error ?? r.message ?? "", error: !!r.error });
+      if (!r.error) {
+        setDirty(false);
+        router.refresh();
+      }
+    });
+  }
 
   return (
     <div className="grid gap-3">
@@ -213,44 +252,129 @@ export function VariantsEditor({
           <Button
             type="button"
             variant="outline"
-            disabled={busy}
+            disabled={busy || dirty}
+            title={dirty ? "Save your changes first" : undefined}
             className="h-8 gap-1.5 px-3 text-xs"
             onClick={() =>
               start(async () => {
                 const r = await createMissingVariantsAction(productId);
-                setNote(r.error ?? `${r.created} variants added — set their stock below.`);
+                setNote({ text: r.error ?? `${r.created} variants created — set their price and stock below.`, error: !!r.error });
                 router.refresh();
               })
             }
           >
-            {busy ? <Loader2 className="animate-spin" /> : <Wand2 className="size-3.5" />} Add them all
+            {busy ? <Loader2 className="animate-spin" /> : <Wand2 className="size-3.5" />} Create variants
           </Button>
-          <span className="text-xs text-muted-foreground">They copy the first variant&apos;s price, with 0 stock.</span>
+          <span className="text-xs text-muted-foreground">One for every combination. They copy the first variant&apos;s price, with 0 stock.</span>
         </div>
       )}
-      {note && <p className="text-xs text-muted-foreground">{note}</p>}
 
-      <div className="overflow-x-auto">
-        <div className="grid gap-2 md:min-w-max">
-          <div className="hidden gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid" style={{ gridTemplateColumns: columns }}>
-            {used.map((o) => (
-              <span key={o.name}>{o.name}</span>
-            ))}
-            <span>SKU</span>
-            <span>Price ($)</span>
-            <span>Sale ($)</span>
-            <span>Stock</span>
-            <span>Weight (g)</span>
-            <span>Barcode</span>
-            <span />
-          </div>
-          {variants.map((v) => (
-            <VariantForm key={JSON.stringify(v)} productId={productId} options={used} variant={v} columns={columns} canDelete={variants.length > 1} />
+      {rows.length > 1 && (
+        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed border-border p-3 text-sm">
+          <span className="w-full text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-auto sm:self-center">Set for all</span>
+          {(
+            [
+              ["price", "Price ($)", "24.95"],
+              ["salePrice", "Sale ($)", "blank = none"],
+              ["stock", "Stock", "10"],
+            ] as const
+          ).map(([field, label, placeholder]) => (
+            <div key={field} className="flex items-end gap-1">
+              <label className="grid gap-1 text-xs">
+                {label}
+                <input
+                  value={bulk[field]}
+                  onChange={(e) => setBulk((b) => ({ ...b, [field]: e.target.value }))}
+                  placeholder={placeholder}
+                  inputMode={field === "stock" ? "numeric" : "decimal"}
+                  className={cn(inputClass, "h-9 w-28")}
+                />
+              </label>
+              <Button type="button" variant="outline" className="h-9 px-3 text-xs" onClick={() => setAll(field)} disabled={field !== "salePrice" && !bulk[field].trim()}>
+                Apply
+              </Button>
+            </div>
           ))}
-          {/* With no options there's just the one variant. */}
-          {used.length > 0 && <VariantForm key={`new-${variants.length}`} productId={productId} options={used} columns={columns} canDelete={false} />}
         </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[46rem] text-sm [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
+          <thead className="border-b border-border">
+            <tr>
+              <th>{used.map((o) => o.name).join(" / ") || "Variant"}</th>
+              <th>SKU</th>
+              <th>Price ($)</th>
+              <th>Sale ($)</th>
+              <th>Stock</th>
+              <th>Weight (g)</th>
+              <th>Barcode</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const err = rowErrors[r.id] ?? {};
+              const cell = (field: keyof VariantTableRow, props: React.InputHTMLAttributes<HTMLInputElement> & { width: string }) => (
+                <td className="align-top">
+                  <input
+                    value={r[field]}
+                    onChange={(e) => edit(r.id, field, e.target.value)}
+                    aria-label={`${r.label} ${field}`}
+                    aria-invalid={!!err[field]}
+                    {...props}
+                    className={cn(inputClass, "h-9", props.width, field === "sku" && "uppercase")}
+                  />
+                  {err[field] && <span className="mt-0.5 block text-xs text-destructive">{err[field]}</span>}
+                </td>
+              );
+              return (
+                <tr key={r.id} className="border-b border-border last:border-0">
+                  <td className="font-medium whitespace-nowrap">{r.label}</td>
+                  {cell("sku", { width: "w-32", maxLength: 60, placeholder: "SKU" })}
+                  {cell("price", { width: "w-24", inputMode: "decimal", required: true })}
+                  {cell("salePrice", { width: "w-24", inputMode: "decimal", placeholder: "—" })}
+                  {cell("stock", { width: "w-20", inputMode: "numeric" })}
+                  {cell("weightGrams", { width: "w-20", inputMode: "numeric", placeholder: "—" })}
+                  {cell("barcode", { width: "w-32", maxLength: 40, placeholder: "—" })}
+                  <td className="align-top">
+                    {rows.length > 1 && (
+                      <DeleteButton
+                        label=""
+                        onConfirm={() =>
+                          start(async () => {
+                            const res = await deleteVariantAction(r.id);
+                            if (res.error) setNote({ text: res.error, error: true });
+                            router.refresh();
+                          })
+                        }
+                      />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" onClick={save} disabled={busy || !dirty} className="h-10 px-4 font-semibold">
+          {busy && <Loader2 className="animate-spin" />} Save changes
+        </Button>
+        {dirty && !busy && <span className="text-xs font-medium text-brand-accent">Unsaved changes</span>}
+        {note && <span className={cn("text-xs", note.error ? "text-destructive" : "text-muted-foreground")}>{note.text}</span>}
+      </div>
+
+      {/* Add one combination by hand (e.g. only some sizes come in Navy). */}
+      {used.length > 0 && (
+        <details className="rounded-lg border border-border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">Add one variant</summary>
+          <div className="mt-3 overflow-x-auto">
+            <VariantForm productId={productId} options={used} columns={`${used.map(() => "minmax(6.5rem,1fr)").join(" ")} minmax(7rem,1fr) 6rem 6rem 5rem 5.5rem minmax(7rem,1fr) 7.5rem`} canDelete={false} />
+          </div>
+        </details>
+      )}
     </div>
   );
 }

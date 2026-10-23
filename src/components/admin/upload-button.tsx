@@ -117,3 +117,32 @@ export function UploadButton({
     </div>
   );
 }
+
+/** One picture (e.g. a brand logo): preview, upload/replace and remove. */
+export function ImagePicker({
+  config,
+  folder,
+  value,
+  onChange,
+}: {
+  config: CloudinaryPublic;
+  folder: string;
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      {value && (
+        // Plain <img>: any size of logo or banner, shown small.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={value} alt="" className="size-16 rounded-md bg-muted object-contain" />
+      )}
+      <UploadButton config={config} folder={folder} accept="image" multiple={false} label={value ? "Replace" : "Upload"} onUploaded={(files) => onChange(files[0].url)} />
+      {value && (
+        <button type="button" onClick={() => onChange("")} className="text-xs text-muted-foreground underline hover:text-destructive">
+          Remove
+        </button>
+      )}
+    </div>
+  );
+}
