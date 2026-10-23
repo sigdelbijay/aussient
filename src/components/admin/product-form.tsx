@@ -1,9 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
+import { cn } from "cn";
 import { FormAlert } from "@/components/auth/form-bits";
 import { Button } from "@/components/ui/button";
 import { saveProductAction } from "@/lib/admin/product-actions";
+import type { SpecField, SpecValue } from "@/lib/product-types";
 import { AdminField, inputClass, Panel, textareaClass } from "./ui";
 import { useAdminForm } from "./use-admin-form";
 
@@ -12,33 +16,74 @@ export type ProductFormValues = {
   name: string;
   slug: string;
   description: string;
-  price: string;
-  salePrice: string;
-  stock: number;
-  material: string;
-  style: string;
-  hypoallergenic: boolean;
+  productTypeId: string;
+  brandId: string;
+  categoryIds: string[];
+  /** Comma-separated, e.g. "gift, summer". */
+  tags: string;
+  specs: Record<string, SpecValue>;
   details: string;
   care: string;
   seoTitle: string;
   seoDescription: string;
-  categoryId: string;
   status: "DRAFT" | "LIVE";
   featured: boolean;
 };
 
-/** Add / edit a product's details. New products go to their edit page to add photos and finishes. */
+export type ProductTypeChoice = { id: string; name: string; optionNames: string[]; specFields: SpecField[] };
+
+/**
+ * Add / edit a product's details. The spec fields come from the chosen product
+ * type. New products also set the price and stock of their first variant;
+ * options (sizes, colours…) and more variants are added on the edit page.
+ */
 export function ProductForm({
   values,
+  types,
+  brands,
   categories,
-  hasVariants,
+  typeLocked,
 }: {
   values: ProductFormValues;
-  categories: { id: string; name: string }[];
-  hasVariants: boolean;
+  types: ProductTypeChoice[];
+  brands: { id: string; name: string }[];
+  /** In tree order; depth 0 = top level. */
+  categories: { id: string; name: string; depth: number }[];
+  /** True once the product has option values (they belong to its type). */
+  typeLocked: boolean;
 }) {
   const { state, onSubmit, pending } = useAdminForm(saveProductAction);
   const err = (k: string) => state?.fieldErrors?.[k];
+  const [typeId, setTypeId] = useState(values.productTypeId);
+  const type = types.find((t) => t.id === typeId);
+  const isNew = !values.id;
+
+  // Step 1 for new products: pick the type, which decides the specs and options.
+  if (isNew && !type) {
+    return (
+      <Panel title="1. What are you adding?" description="Pick the product type first — it decides which specs the product has and what shoppers pick.">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {types.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTypeId(t.id)}
+              className="rounded-lg border border-border p-3 text-left text-sm hover:border-brand-ink hover:bg-muted/50"
+            >
+              <span className="font-semibold">{t.name}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {t.optionNames.length ? `Shoppers pick ${t.optionNames.join(", ")}` : "No options"}
+                {t.specFields.length > 0 && ` · ${t.specFields.length} specs`}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Not listed? <Link href="/admin/product-types/new" className="underline">Add a product type</Link> first.
+        </p>
+      </Panel>
+    );
+  }
 
   return (
     <form onSubmit={onSubmit} className="grid gap-6">
@@ -56,45 +101,53 @@ export function ProductForm({
               <AdminField label="Description" error={err("description")} hint="Shown at the top of the product page.">
                 <textarea name="description" defaultValue={values.description} rows={4} maxLength={5000} className={textareaClass} />
               </AdminField>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <AdminField label="Material" error={err("material")} hint="Shop filter, e.g. Sterling silver">
-                  <input name="material" defaultValue={values.material} maxLength={80} className={inputClass} />
-                </AdminField>
-                <AdminField label="Style" error={err("style")} hint="Shop filter, e.g. hoops, studs">
-                  <input name="style" defaultValue={values.style} maxLength={40} className={inputClass} />
-                </AdminField>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" name="hypoallergenic" defaultChecked={values.hypoallergenic} className="size-4 accent-brand-ink" />
-                Hypoallergenic (shows in the &ldquo;Sensitive ears&rdquo; filter)
-              </label>
-              <AdminField label="Details" hint="One fact per line: size, weight, closure…">
-                <textarea name="details" defaultValue={values.details} rows={4} maxLength={2000} className={textareaClass} />
+              <AdminField label="Details" hint="One fact per line, e.g. size or what's included.">
+                <textarea name="details" defaultValue={values.details} rows={3} maxLength={2000} className={textareaClass} />
               </AdminField>
               <AdminField label="Care">
-                <textarea name="care" defaultValue={values.care} rows={3} maxLength={2000} className={textareaClass} />
+                <textarea name="care" defaultValue={values.care} rows={2} maxLength={2000} className={textareaClass} />
               </AdminField>
             </div>
           </Panel>
 
-          <Panel title="Pricing & stock">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <AdminField label="Price ($)" error={err("price")}>
-                <input name="price" defaultValue={values.price} inputMode="decimal" required placeholder="24.95" className={inputClass} aria-invalid={!!err("price")} />
-              </AdminField>
-              <AdminField label="Sale price ($)" error={err("salePrice")} hint="Leave blank when not on sale">
-                <input name="salePrice" defaultValue={values.salePrice} inputMode="decimal" placeholder="19.95" className={inputClass} aria-invalid={!!err("salePrice")} />
-              </AdminField>
-              <AdminField
-                label="Stock"
-                error={err("stock")}
-                hint={hasVariants ? "Not used — each finish has its own stock below" : "Units available"}
-              >
-                <input name="stock" type="number" min={0} defaultValue={values.stock} disabled={hasVariants} className={inputClass} />
-              </AdminField>
-              {hasVariants && <input type="hidden" name="stock" value={values.stock} />}
+          <Panel
+            title={type ? `${type.name} specs` : "Specs"}
+            description={type ? "Set by the product type. Specs marked “filter” appear as shop filters." : "Choose a product type first."}
+          >
+            {type && type.specFields.length === 0 && <p className="text-sm text-muted-foreground">This type has no spec fields.</p>}
+            {/* Re-mount when the type changes so old values don't carry over. */}
+            <div key={typeId} className="grid gap-4 sm:grid-cols-2">
+              {type?.specFields.map((field) => (
+                <SpecInput key={field.label} field={field} value={values.specs[field.label]} error={err(`spec:${field.label}`)} />
+              ))}
             </div>
           </Panel>
+
+          {isNew && (
+            <Panel
+              title="Price & stock"
+              description={
+                type?.optionNames.length
+                  ? `For the first variant. After creating, add the ${type.optionNames.join(" and ")} values and click “Create variants” to make every combination.`
+                  : "This type has no options, so the product is one variant."
+              }
+            >
+              <div className="grid gap-4 sm:grid-cols-4">
+                <AdminField label="Price ($)" error={err("price")} hint="Incl. GST">
+                  <input name="price" inputMode="decimal" required placeholder="24.95" className={inputClass} aria-invalid={!!err("price")} />
+                </AdminField>
+                <AdminField label="Sale price ($)" error={err("salePrice")} hint="Blank = not on sale">
+                  <input name="salePrice" inputMode="decimal" placeholder="19.95" className={inputClass} aria-invalid={!!err("salePrice")} />
+                </AdminField>
+                <AdminField label="Stock" error={err("stock")}>
+                  <input name="stock" type="number" min={0} defaultValue={0} className={inputClass} />
+                </AdminField>
+                <AdminField label="SKU" error={err("sku")} hint="Optional">
+                  <input name="sku" maxLength={60} className={cn(inputClass, "uppercase")} />
+                </AdminField>
+              </div>
+            </Panel>
+          )}
 
           <Panel title="Search engines" description="Optional — defaults to the name and description.">
             <div className="grid gap-4">
@@ -131,26 +184,114 @@ export function ProductForm({
               </label>
             </div>
           </Panel>
-          <Panel title="Category">
-            <AdminField label="Category" error={err("categoryId")}>
-              <select name="categoryId" defaultValue={values.categoryId} required className={inputClass}>
-                <option value="" disabled>
-                  Choose…
-                </option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+
+          <Panel title="Organise">
+            <div className="grid gap-4">
+              <AdminField
+                label="Product type"
+                error={err("productTypeId")}
+                hint={typeLocked ? "Locked while the product has option values." : type?.optionNames.length ? `Shoppers pick: ${type.optionNames.join(", ")}` : "Sets the options and specs."}
+              >
+                <select
+                  name="productTypeId"
+                  value={typeId}
+                  onChange={(e) => setTypeId(e.target.value)}
+                  required
+                  disabled={typeLocked}
+                  className={inputClass}
+                >
+                  <option value="" disabled>
+                    Choose…
                   </option>
-                ))}
-              </select>
-            </AdminField>
+                  {types.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </AdminField>
+              {/* Disabled selects aren't sent, so send the locked type separately. */}
+              {typeLocked && <input type="hidden" name="productTypeId" value={typeId} />}
+
+              <AdminField label="Brand" error={err("brandId")}>
+                <select name="brandId" defaultValue={values.brandId} className={inputClass}>
+                  <option value="">No brand</option>
+                  {brands.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </AdminField>
+
+              <fieldset className="grid gap-1.5">
+                <legend className="mb-1.5 text-sm font-medium">Categories</legend>
+                <div className="grid max-h-56 gap-1 overflow-y-auto rounded-md border border-input p-2">
+                  {categories.length === 0 && <p className="text-xs text-muted-foreground">No categories yet.</p>}
+                  {categories.map((c) => (
+                    <label key={c.id} className="flex items-center gap-2 text-sm" style={{ paddingLeft: `${c.depth * 1.25}rem` }}>
+                      <input type="checkbox" name="categoryIds" value={c.id} defaultChecked={values.categoryIds.includes(c.id)} className="size-4 accent-brand-ink" />
+                      {c.name}
+                    </label>
+                  ))}
+                </div>
+                <span className={cn("text-xs", err("categoryIds") ? "text-destructive" : "text-muted-foreground")}>
+                  {err("categoryIds") ?? "Tick every category it should appear in."}
+                </span>
+              </fieldset>
+
+              <AdminField label="Tags" error={err("tags")} hint="Comma-separated, e.g. gift, summer. Used by search and collections.">
+                <input name="tags" defaultValue={values.tags} maxLength={500} className={inputClass} />
+              </AdminField>
+            </div>
           </Panel>
+
           <Button type="submit" size="lg" disabled={pending} className="h-11 w-full font-semibold">
             {pending && <Loader2 className="animate-spin" />}
-            {values.id ? "Save product" : "Create product"}
+            {isNew ? "Create product" : "Save product"}
           </Button>
         </div>
       </div>
     </form>
+  );
+}
+
+/** One spec input, shaped by its kind (text, number, yes/no or pick-from-list). */
+function SpecInput({ field, value, error }: { field: SpecField; value: SpecValue | undefined; error?: string }) {
+  const name = `spec:${field.label}`;
+  const hint = [field.unit && `In ${field.unit}`, field.filterable && "Shop filter"].filter(Boolean).join(" · ");
+
+  if (field.kind === "yes-no") {
+    return (
+      <label className="flex items-center gap-2 self-end pb-2 text-sm">
+        <input type="checkbox" name={name} defaultChecked={value === true} className="size-4 accent-brand-ink" />
+        {field.label}
+        {field.filterable && <span className="text-xs text-muted-foreground">(shop filter)</span>}
+      </label>
+    );
+  }
+  return (
+    <AdminField label={field.label} error={error} hint={hint || undefined}>
+      {field.kind === "pick" ? (
+        <select name={name} defaultValue={value === undefined ? "" : String(value)} className={inputClass} aria-invalid={!!error}>
+          <option value="">—</option>
+          {/* Keep a saved value that's no longer in the type's list, so saving doesn't lose it. */}
+          {[...(field.choices ?? []), ...(value !== undefined && !field.choices?.includes(String(value)) ? [String(value)] : [])].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          name={name}
+          defaultValue={value === undefined ? "" : String(value)}
+          inputMode={field.kind === "number" ? "decimal" : undefined}
+          maxLength={200}
+          className={inputClass}
+          aria-invalid={!!error}
+        />
+      )}
+    </AdminField>
   );
 }

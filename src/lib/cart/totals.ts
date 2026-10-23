@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { variantLabel } from "@/lib/product-types";
 import {
   normalizeCode,
   priceBag,
@@ -54,36 +55,55 @@ export async function calculateTotals(
   });
 }
 
-const firstImage = { where: { type: "IMAGE" as const }, orderBy: { order: "asc" as const }, take: 1 };
+const firstImage = { where: { type: "IMAGE" as const }, orderBy: { order: "asc" as const }, take: 1, select: { url: true } };
+const optionValue = { select: { value: true, media: firstImage } };
 
 async function loadProducts(ids: string[]): Promise<PricingProduct[]> {
-  const rows = await prisma.product.findMany({
-    where: { id: { in: ids } },
-    include: {
-      media: { ...firstImage, where: { ...firstImage.where, variantId: null } },
-      variants: { include: { media: firstImage } },
-    },
-  });
+  const [rows, categories] = await Promise.all([
+    prisma.product.findMany({
+      where: { id: { in: ids } },
+      include: {
+        categories: { select: { id: true } },
+        media: { ...firstImage, where: { ...firstImage.where, optionValueId: null } },
+        variants: { include: { option1: optionValue, option2: optionValue, option3: optionValue } },
+      },
+    }),
+    prisma.category.findMany({ select: { id: true, parentId: true } }),
+  ]);
+
+  /** A category and the ones above it, e.g. Dresses → [Dresses, Clothing, Women]. */
+  const withParents = (id: string) => {
+    const out: string[] = [];
+    for (let c = categories.find((x) => x.id === id); c && out.length < 5; c = categories.find((x) => x.id === c!.parentId)) {
+      out.push(c.id);
+    }
+    return out;
+  };
+
   const money = (d: { toString(): string } | null) => (d === null ? null : Number(d));
-  return rows.map((p) => ({
-    id: p.id,
-    slug: p.slug,
-    name: p.name,
-    live: p.status === "LIVE",
-    categoryId: p.categoryId,
-    price: Number(p.price),
-    salePrice: money(p.salePrice),
-    stock: p.stock,
-    image: p.media[0]?.url ?? null,
-    variants: p.variants.map((v) => ({
-      id: v.id,
-      name: v.name,
-      price: money(v.price),
-      salePrice: money(v.salePrice),
-      stock: v.stock,
-      image: v.media[0]?.url ?? null,
-    })),
-  }));
+  return rows.map((p) => {
+    const image = p.media[0]?.url ?? null;
+    return {
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+      live: p.status === "LIVE",
+      categoryIds: [...new Set(p.categories.flatMap((c) => withParents(c.id)))],
+      image,
+      variants: p.variants.map((v) => {
+        const values = [v.option1, v.option2, v.option3];
+        return {
+          id: v.id,
+          label: variantLabel(values.map((o) => o?.value)),
+          price: Number(v.price),
+          salePrice: money(v.salePrice),
+          stock: v.stock,
+          // A photo of one of its option values (e.g. the Navy photo), else the main photo.
+          image: values.map((o) => o?.media[0]?.url).find(Boolean) ?? image,
+        };
+      }),
+    };
+  });
 }
 
 /** Automatic offers, plus the discount for the entered code. Dates are checked in priceBag. */

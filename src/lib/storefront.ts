@@ -3,7 +3,6 @@ import { unstable_cache } from "next/cache";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/cache";
-import type { ProductSource } from "@/lib/home-sections";
 import { LOW_STOCK } from "@/lib/catalog-shared";
 
 /**
@@ -20,7 +19,7 @@ import { LOW_STOCK } from "@/lib/catalog-shared";
 
 // The data cache outlives deploys, so bump this whenever the shape of cached
 // data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 5;
 
 export const storefrontCache: typeof unstable_cache =
   process.env.NODE_ENV === "development"
@@ -58,12 +57,16 @@ export async function rebuildAtNextChange(items: Scheduled[], now = Date.now()) 
 
 // ── Site chrome: settings, announcement bar, menus ──────────────
 
-export type MenuLink = { id: string; label: string; url: string; image: string | null };
+export type MenuLink = { id: string; label: string; url: string; image: string | null; children?: MenuLink[] };
 export type MenuGroup = MenuLink & { children: MenuLink[] };
 
 export type SiteChrome = {
   settings: {
     storeName: string;
+    tagline: string | null;
+    metaDescription: string | null;
+    deliveryInfo: string | null;
+    returnsInfo: string | null;
     newsletterHeading: string;
     newsletterText: string;
     footerPerks: string[];
@@ -91,6 +94,37 @@ async function loadMenu(location: "header" | "footer"): Promise<MenuGroup[]> {
   return items.map((m) => ({ ...pick(m), children: m.children.map(pick) }));
 }
 
+/**
+ * The header menu: one entry per top-level category (its sub-categories, and
+ * theirs, fill the mega menu, with the category's picture), followed by any
+ * extra header links set up in the admin menu (e.g. New In, Sale).
+ */
+async function loadHeaderMenu(): Promise<MenuGroup[]> {
+  const [categories, extras] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, slug: true, image: true, parentId: true },
+    }),
+    loadMenu("header"),
+  ]);
+  const link = (c: (typeof categories)[number]): MenuLink => ({
+    id: c.id,
+    label: c.name,
+    url: `/collections/${c.slug}`,
+    image: c.image,
+  });
+  const childrenOf = (id: string) => categories.filter((c) => c.parentId === id);
+  const tree = categories
+    .filter((c) => c.parentId === null)
+    .map((top) => ({
+      ...link(top),
+      children: childrenOf(top.id).map((mid) => ({ ...link(mid), children: childrenOf(mid.id).map(link) })),
+    }));
+  // A menu item pointing at a category page is already covered by the tree.
+  const categoryUrls = new Set(categories.map((c) => `/collections/${c.slug}`));
+  return [...tree, ...extras.filter((m) => !categoryUrls.has(m.url))];
+}
+
 export const getSiteChrome = storefrontCache(
   async (): Promise<SiteChrome> => {
     const [settings, banners, headerMenu, footerMenu] = await Promise.all([
@@ -99,12 +133,16 @@ export const getSiteChrome = storefrontCache(
         where: { placement: "announcement", active: true },
         orderBy: { order: "asc" },
       }),
-      loadMenu("header"),
+      loadHeaderMenu(),
       loadMenu("footer"),
     ]);
     return {
       settings: {
         storeName: settings?.storeName ?? "Aussient",
+        tagline: settings?.tagline ?? null,
+        metaDescription: settings?.metaDescription ?? null,
+        deliveryInfo: settings?.deliveryInfo ?? null,
+        returnsInfo: settings?.returnsInfo ?? null,
         newsletterHeading: settings?.newsletterHeading ?? "Join the list",
         newsletterText: settings?.newsletterText ?? "",
         footerPerks: Array.isArray(settings?.footerPerks) ? (settings.footerPerks as string[]) : [],
@@ -127,7 +165,8 @@ export const getSiteChrome = storefrontCache(
     };
   },
   ["site-chrome"],
-  { tags: [CACHE_TAGS.content] },
+  // Categories (the header menu) are cleared with products.
+  { tags: [CACHE_TAGS.content, CACHE_TAGS.products] },
 );
 
 // ── Home sections ───────────────────────────────────────────────
@@ -165,41 +204,47 @@ export type ProductCardData = {
   id: string;
   slug: string;
   name: string;
-  collection: string;
+  /** Small line under the name: the brand, or the product type (e.g. "Watch"). */
+  subtitle: string;
+  /** The lowest price shoppers pay across its variants. */
   price: number;
   compareAtPrice: number | null;
+  /** True when variants cost different amounts (shown as "From $X"). */
+  priceVaries: boolean;
   /** Shown in this order: SALE, LOW STOCK, NEW. */
   badges: ("sale" | "low" | "new")[];
   images: { url: string; alt: string }[];
-  /** One per finish/colour; `id` is the variant to add to the bag. */
+  /** Short hints under the name, e.g. "3 colours", "More sizes". */
+  hints: string[];
+  /** Colour dots for the first option that has swatches (e.g. Colour). */
   swatches: {
     id: string;
     name: string;
-    color: string;
+    color: string | null;
+    image: string | null;
     stock: number;
-    /** This finish's price (same as the product's unless it has its own). */
+    /** The variant to add when this swatch alone decides it (one-option products), else null. */
+    variantId: string | null;
     price: number;
     compareAtPrice: number | null;
   }[];
-  /** Units available across all finishes. */
+  /** For products with a single variant: the one to add straight to the bag. */
+  quickAddVariantId: string | null;
+  /** Units available across all variants. */
   stock: number;
 };
 
-export const SWATCH_COLORS: Record<string, string> = {
-  gold: "oklch(0.82 0.085 85)",
-  silver: "oklch(0.85 0.005 280)",
-  "rose gold": "oklch(0.78 0.08 30)",
-  black: "oklch(0.2 0.02 280)",
-};
-
-export const swatchColor = (name: string) => SWATCH_COLORS[name.toLowerCase()] ?? "oklch(0.7 0 0)";
-
 export const cardInclude = {
-  category: { select: { name: true } },
-  // The first two general (not finish-specific) photos: front + hover image.
-  media: { where: { type: "IMAGE", variantId: null }, orderBy: { order: "asc" }, take: 2 },
+  productType: { select: { name: true, optionNames: true } },
+  brand: { select: { name: true } },
+  // A few photos in order; general (not option-specific) ones are used first.
+  media: { where: { type: "IMAGE" }, orderBy: { order: "asc" }, take: 6, select: { url: true, alt: true, optionValueId: true } },
+  optionValues: {
+    orderBy: { order: "asc" },
+    select: { id: true, option: true, value: true, swatchColor: true, swatchImage: true },
+  },
   variants: {
-    select: { id: true, name: true, stock: true, price: true, salePrice: true },
+    select: { id: true, price: true, salePrice: true, stock: true, option1Id: true, option2Id: true, option3Id: true },
     orderBy: { createdAt: "asc" },
   },
 } satisfies Prisma.ProductInclude;
@@ -211,117 +256,92 @@ const NEW_DAYS = 30;
 type Money = Prisma.Decimal | null;
 
 /** What shoppers pay, plus the original price to cross out when it's on sale. */
-function pricing(price: Prisma.Decimal, salePrice: Money) {
-  const onSale = salePrice !== null && Number(salePrice) < Number(price);
-  return {
-    price: Number(onSale ? salePrice : price),
-    compareAtPrice: onSale ? Number(price) : null,
-  };
+export function pricing(price: Prisma.Decimal | number, salePrice: Money | number) {
+  const full = Number(price);
+  const sale = salePrice === null ? null : Number(salePrice);
+  const onSale = sale !== null && sale < full;
+  return { price: onSale ? sale : full, compareAtPrice: onSale ? full : null };
+}
+
+/** The cheapest variant's price (sale price if it has one). */
+function cheapest(variants: { price: Prisma.Decimal; salePrice: Money }[]) {
+  const priced = variants.map((v) => pricing(v.price, v.salePrice)).sort((a, b) => a.price - b.price);
+  return priced[0] ?? { price: 0, compareAtPrice: null };
+}
+
+export const variantOptionIds = (v: { option1Id: string | null; option2Id: string | null; option3Id: string | null }) =>
+  [v.option1Id, v.option2Id, v.option3Id].filter((x): x is string => !!x);
+
+/** "Size" → "sizes", "Strap colour" → "strap colours", "Finish" → "finishes". */
+function plural(option: string) {
+  const word = option.toLowerCase();
+  if (/(s|x|ch|sh)$/.test(word)) return `${word}es`;
+  if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`;
+  return `${word}s`;
 }
 
 export function toCard(p: CardProduct): ProductCardData {
-  const onSale = p.salePrice !== null && Number(p.salePrice) < Number(p.price);
-  const base = pricing(p.price, p.salePrice);
+  const base = cheapest(p.variants);
+  const prices = new Set(p.variants.map((v) => pricing(v.price, v.salePrice).price));
+  const onSale = p.variants.some((v) => pricing(v.price, v.salePrice).compareAtPrice !== null);
   const isNew = Date.now() - p.createdAt.getTime() < NEW_DAYS * 24 * 60 * 60 * 1000;
-  // With variants, stock lives on each finish; otherwise on the product.
-  const stock = p.variants.length ? p.variants.reduce((n, v) => n + v.stock, 0) : p.stock;
+  const stock = p.variants.reduce((n, v) => n + v.stock, 0);
+
+  // Swatches: the first option (in the product type's order) whose values have a colour or picture.
+  const optionsUsed = p.productType.optionNames.filter((name) => p.optionValues.some((v) => v.option === name));
+  const swatchOption = optionsUsed.find((name) =>
+    p.optionValues.some((v) => v.option === name && (v.swatchColor || v.swatchImage)),
+  );
+  const swatches = p.optionValues
+    .filter((v) => v.option === swatchOption)
+    .map((value) => {
+      const mine = p.variants.filter((v) => variantOptionIds(v).includes(value.id));
+      // With only this one option, picking the swatch picks the variant.
+      const exact = optionsUsed.length === 1 && mine.length === 1 ? mine[0] : null;
+      return {
+        id: value.id,
+        name: value.value,
+        color: value.swatchColor,
+        image: value.swatchImage,
+        stock: mine.reduce((n, v) => n + v.stock, 0),
+        variantId: exact?.id ?? null,
+        ...(mine.length ? cheapest(mine) : base),
+      };
+    });
+
+  // "3 colours" for the swatch option, "More sizes" for other options with a choice.
+  const hints = optionsUsed.flatMap((name) => {
+    const count = p.optionValues.filter((v) => v.option === name).length;
+    if (count < 2) return [];
+    return name === swatchOption ? [`${count} ${plural(name)}`] : [`More ${plural(name)}`];
+  });
+
+  const general = p.media.filter((m) => !m.optionValueId);
+  const photos = (general.length ? general : p.media).slice(0, 2);
+
   return {
     id: p.id,
     slug: p.slug,
     name: p.name,
-    collection: p.category.name,
+    subtitle: p.brand?.name ?? p.productType.name,
     ...base,
+    priceVaries: prices.size > 1,
     badges: [
       ...(onSale ? (["sale"] as const) : []),
       ...(stock > 0 && stock <= LOW_STOCK ? (["low"] as const) : []),
       ...(isNew ? (["new"] as const) : []),
     ],
-    images: p.media.map((m) => ({ url: m.url, alt: m.alt ?? p.name })),
-    swatches: p.variants.map((v) => ({
-      id: v.id,
-      name: v.name,
-      color: swatchColor(v.name),
-      stock: v.stock,
-      // Finishes without their own price use the product's price and sale price.
-      ...(v.price === null ? base : pricing(v.price, v.salePrice)),
-    })),
+    images: photos.map((m) => ({ url: m.url, alt: m.alt ?? p.name })),
+    hints,
+    swatches,
+    quickAddVariantId: p.variants.length === 1 ? p.variants[0].id : null,
     stock,
   };
 }
 
 export const live = { status: "LIVE" } satisfies Prisma.ProductWhereInput;
 
-async function loadProducts(source: ProductSource, limit: number, maxPrice?: number) {
-  switch (source) {
-    case "new":
-      return prisma.product.findMany({
-        where: live,
-        orderBy: { createdAt: "desc" },
-        take: limit,
-        include: cardInclude,
-      });
-    case "featured":
-      return prisma.product.findMany({
-        where: { ...live, featured: true },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-        include: cardInclude,
-      });
-    case "sale":
-      return prisma.product.findMany({
-        where: { ...live, salePrice: { not: null } },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-        include: cardInclude,
-      });
-    case "under": {
-      const max = maxPrice ?? 20;
-      return prisma.product.findMany({
-        // The price shoppers pay: the sale price if there is one, otherwise the price.
-        where: {
-          ...live,
-          OR: [{ salePrice: { lte: max } }, { salePrice: null, price: { lte: max } }],
-        },
-        orderBy: { price: "asc" },
-        take: limit,
-        include: cardInclude,
-      });
-    }
-    case "bestsellers": {
-      const top = await prisma.orderItem.groupBy({
-        by: ["productId"],
-        where: { productId: { not: null }, order: { status: { in: ["PAID", "SHIPPED"] } } },
-        _sum: { quantity: true },
-        orderBy: { _sum: { quantity: "desc" } },
-        take: limit,
-      });
-      const ids = top.map((t) => t.productId!);
-      const sold = await prisma.product.findMany({
-        where: { ...live, id: { in: ids } },
-        include: cardInclude,
-      });
-      sold.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-      // Not enough sales yet? Top up with featured items so the row is never empty.
-      if (sold.length < limit) {
-        const fill = await prisma.product.findMany({
-          where: { ...live, id: { notIn: sold.map((p) => p.id) } },
-          orderBy: [{ featured: "desc" }, { createdAt: "desc" }],
-          take: limit - sold.length,
-          include: cardInclude,
-        });
-        sold.push(...fill);
-      }
-      return sold;
-    }
-  }
-}
-
-export const getProductRow = storefrontCache(
-  async (source: ProductSource, limit: number, maxPrice?: number) =>
-    (await loadProducts(source, limit, maxPrice)).map(toCard),
-  ["product-row"],
-  { tags: [CACHE_TAGS.products] },
-);
+export const onSaleWhere = { variants: { some: { salePrice: { not: null } } } } satisfies Prisma.ProductWhereInput;
 
 // ── Reviews ─────────────────────────────────────────────────────
 

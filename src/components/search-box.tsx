@@ -108,7 +108,7 @@ export function SearchBox({ className }: { className?: string }) {
                   name="q"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search for earrings, necklaces, rings…"
+                  placeholder="Search products, brands…"
                   aria-label="Search products"
                   autoComplete="off"
                   className="h-9 border-0 shadow-none focus-visible:ring-0"

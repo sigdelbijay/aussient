@@ -3,13 +3,16 @@ import Link from "next/link";
 import { ProductForm } from "@/components/admin/product-form";
 import { PageHeader } from "@/components/admin/ui";
 import { requireStaff } from "@/lib/auth/dal";
-import { prisma } from "@/lib/prisma";
+import { productFormChoices } from "@/lib/admin/product-choices";
 
 export const metadata: Metadata = { title: "Add product" };
 
-export default async function NewProductPage() {
+export default async function NewProductPage({ searchParams }: PageProps<"/admin/products/new">) {
   await requireStaff("/admin/products/new");
-  const categories = await prisma.category.findMany({ orderBy: { order: "asc" }, select: { id: true, name: true } });
+  const sp = await searchParams;
+  const choices = await productFormChoices();
+  // ?type=<id> skips step 1 (e.g. from a product type's page).
+  const typeId = choices.types.find((t) => t.id === sp.type)?.id ?? "";
 
   return (
     <>
@@ -17,33 +20,37 @@ export default async function NewProductPage() {
         title="Add product"
         description={
           <>
-            <Link href="/admin/products" className="underline">Products</Link> · Photos, videos and finishes can be added after
-            the product is created.
+            <Link href="/admin/products" className="underline">Products</Link> · Photos, options (sizes, colours…) and more
+            variants can be added after the product is created.
           </>
         }
       />
-      <ProductForm
-        categories={categories}
-        hasVariants={false}
-        values={{
-          name: "",
-          slug: "",
-          description: "",
-          price: "",
-          salePrice: "",
-          stock: 0,
-          material: "",
-          style: "",
-          hypoallergenic: false,
-          details: "",
-          care: "",
-          seoTitle: "",
-          seoDescription: "",
-          categoryId: "",
-          status: "DRAFT",
-          featured: false,
-        }}
-      />
+      {choices.types.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border bg-background px-4 py-16 text-center text-sm text-muted-foreground">
+          <Link href="/admin/product-types/new" className="underline">Add a product type</Link> first — it sets each product&apos;s options and specs.
+        </p>
+      ) : (
+        <ProductForm
+          {...choices}
+          typeLocked={false}
+          values={{
+            name: "",
+            slug: "",
+            description: "",
+            productTypeId: typeId,
+            brandId: "",
+            categoryIds: [],
+            tags: "",
+            specs: {},
+            details: "",
+            care: "",
+            seoTitle: "",
+            seoDescription: "",
+            status: "DRAFT",
+            featured: false,
+          }}
+        />
+      )}
     </>
   );
 }

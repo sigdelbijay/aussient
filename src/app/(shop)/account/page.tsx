@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/dal";
 import { logoutAction } from "@/lib/auth/actions";
 import { formatPrice } from "@/lib/format";
+import { pricing } from "@/lib/storefront";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ActionForm } from "@/components/auth/action-form";
@@ -45,7 +46,12 @@ export default async function AccountPage() {
     prisma.wishlist.findMany({
       where: { userId: user.id },
       include: {
-        product: { include: { media: { orderBy: { order: "asc" }, take: 1 } } },
+        product: {
+          include: {
+            media: { orderBy: { order: "asc" }, take: 1 },
+            variants: { select: { price: true, salePrice: true } },
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -287,7 +293,8 @@ export default async function AccountPage() {
                   </Link>
                   <p className="text-sm font-semibold">{product.name}</p>
                   <p className="text-sm">
-                    {formatPrice(Number(product.salePrice ?? product.price))}
+                    {/* The cheapest variant's price (sale price if it has one). */}
+                    {formatPrice(Math.min(...product.variants.map((v) => pricing(v.price, v.salePrice).price)))}
                   </p>
                   <form action={removeFromWishlistAction}>
                     <input type="hidden" name="productId" value={product.id} />

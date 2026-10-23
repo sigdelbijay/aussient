@@ -66,7 +66,7 @@ export async function notifyMeAction(_prev: NotifyState, formData: FormData): Pr
     return { error: "This product isn't available." };
   }
 
-  // One pending request per email + product + finish.
+  // One pending request per email + product + variant.
   const pending = await prisma.backInStockRequest.findFirst({
     where: { productId, variantId, email, notified: false },
   });

@@ -2,25 +2,20 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth/dal";
+import { parseSpecInput, readSpecFields, readSpecs, type Specs } from "@/lib/product-types";
 import { cloudinaryConfig, MEDIA_FOLDER, signParams } from "./cloudinary";
 import { diff, recordChange } from "./activity";
-import {
-  checkbox,
-  fieldErrors,
-  money,
-  optionalMoney,
-  optionalText,
-  wholeNumber,
-  type AdminFormState,
-} from "./form";
-import { parseCsvObjects } from "./csv";
+import { checkbox, fieldErrors, money, optionalMoney, optionalText, wholeNumber, type AdminFormState } from "./form";
 import { slugify, uniqueSlug } from "./slug";
 
 /**
- * Admin product actions. Every one starts with requireStaff() and ends with
- * recordChange(), which logs it and refreshes the cached shop pages.
+ * Admin product actions: details, duplicate, photos. (Options and variants are
+ * in variant-actions.ts, CSV import in import-actions.ts.) Every one starts
+ * with requireStaff() and ends with recordChange(), which logs it and
+ * refreshes the cached shop pages.
  */
 
 const id = z.string().min(1).max(64);
@@ -28,31 +23,55 @@ const id = z.string().min(1).max(64);
 const slugTaken = (exceptId?: string) => async (slug: string) =>
   !!(await prisma.product.findFirst({ where: { slug, ...(exceptId && { id: { not: exceptId } }) } }));
 
+async function productName(productId: string) {
+  return (await prisma.product.findUnique({ where: { id: productId }, select: { name: true } }))?.name;
+}
+
+/** "Gift, summer ,gift" → ["gift", "summer"] (lowercase, no repeats). */
+const tagList = z
+  .string()
+  .optional()
+  .transform((v) => [...new Set((v ?? "").split(",").map((t) => t.trim().toLowerCase().slice(0, 40)).filter(Boolean))].slice(0, 30));
+
 // ── Product details ─────────────────────────────────────────────
 
-const productSchema = z
-  .object({
-    name: z.string().trim().min(1, "Enter a name").max(120),
-    slug: optionalText(80),
-    description: optionalText(5000),
-    price: money,
-    salePrice: optionalMoney,
-    stock: wholeNumber,
-    material: optionalText(80),
-    style: optionalText(40).transform((v) => v?.toLowerCase() ?? null),
-    hypoallergenic: checkbox,
-    details: optionalText(2000),
-    care: optionalText(2000),
-    seoTitle: optionalText(70),
-    seoDescription: optionalText(170),
-    categoryId: z.string("Choose a category").min(1, "Choose a category"),
-    status: z.enum(["DRAFT", "LIVE"]),
-    featured: checkbox,
-  })
+const productSchema = z.object({
+  name: z.string().trim().min(1, "Enter a name").max(120),
+  slug: optionalText(80),
+  description: optionalText(5000),
+  productTypeId: z.string("Choose a product type").min(1, "Choose a product type"),
+  brandId: optionalText(64),
+  tags: tagList,
+  details: optionalText(2000),
+  care: optionalText(2000),
+  seoTitle: optionalText(70),
+  seoDescription: optionalText(170),
+  status: z.enum(["DRAFT", "LIVE"]),
+  featured: checkbox,
+});
+
+// New products also get their first (default) variant from the form.
+const firstVariantSchema = z
+  .object({ price: money, salePrice: optionalMoney, stock: wholeNumber, sku: optionalText(60).transform((v) => v?.toUpperCase() ?? null) })
   .refine((d) => d.salePrice === null || d.salePrice < d.price, {
     path: ["salePrice"],
     message: "Sale price must be lower than the price",
   });
+
+const invalid = (fields: Record<string, string>) => ({ error: "Please fix the highlighted fields.", fieldErrors: fields });
+
+/** Reads the spec inputs (named "spec:<label>") for the product type's fields. */
+function readSpecInputs(formData: FormData, specFields: unknown) {
+  const specs: Specs = {};
+  const errors: Record<string, string> = {};
+  for (const field of readSpecFields(specFields)) {
+    const raw = formData.get(`spec:${field.label}`);
+    const value = parseSpecInput(field, typeof raw === "string" ? raw : undefined);
+    if (value && typeof value === "object") errors[`spec:${field.label}`] = value.error;
+    else if (value !== undefined) specs[field.label] = value;
+  }
+  return { specs, errors };
+}
 
 export async function saveProductAction(_prev: AdminFormState, formData: FormData): Promise<AdminFormState> {
   const user = await requireStaff();
@@ -61,31 +80,72 @@ export async function saveProductAction(_prev: AdminFormState, formData: FormDat
   if (!parsed.success) return fieldErrors(parsed.error);
   const { slug: wantedSlug, ...data } = parsed.data;
 
-  if (!(await prisma.category.findUnique({ where: { id: data.categoryId } }))) {
-    return { error: "Please fix the highlighted fields.", fieldErrors: { categoryId: "Choose a category" } };
-  }
+  // Up to a handful of categories, which must exist.
+  const categoryIds = z.array(id).max(20).parse(formData.getAll("categoryIds"));
+  const [type, brand, categoryCount] = await Promise.all([
+    prisma.productType.findUnique({ where: { id: data.productTypeId } }),
+    data.brandId ? prisma.brand.findUnique({ where: { id: data.brandId } }) : null,
+    prisma.category.count({ where: { id: { in: categoryIds } } }),
+  ]);
+  if (!type) return invalid({ productTypeId: "Choose a product type" });
+  if (data.brandId && !brand) return invalid({ brandId: "That brand no longer exists" });
+  if (categoryCount !== categoryIds.length) return invalid({ categoryIds: "A category no longer exists — reload the page" });
+
+  const { specs, errors } = readSpecInputs(formData, type.specFields);
+  if (Object.keys(errors).length) return invalid(errors);
 
   if (!productId) {
+    const first = firstVariantSchema.safeParse(Object.fromEntries(formData));
+    if (!first.success) return fieldErrors(first.error);
+    if (first.data.sku && (await prisma.productVariant.findUnique({ where: { sku: first.data.sku } }))) {
+      return invalid({ sku: "Another variant already uses this SKU" });
+    }
     const slug = await uniqueSlug(wantedSlug || data.name, slugTaken());
-    const product = await prisma.product.create({ data: { ...data, slug } });
+    const product = await prisma.product.create({
+      data: {
+        ...data,
+        slug,
+        specs,
+        categories: { connect: categoryIds.map((cid) => ({ id: cid })) },
+        // Its first variant. Options (e.g. sizes) can be added on the next page.
+        variants: { create: first.data },
+      },
+    });
     await recordChange(user, {
       action: "product.create",
       entity: "Product",
       entityId: product.id,
-      detail: { name: product.name, status: product.status },
+      detail: { name: product.name, status: product.status, type: type.name },
     });
     redirect(`/admin/products/${product.id}?created=1`);
   }
 
-  const before = await prisma.product.findUnique({ where: { id: productId } });
+  const before = await prisma.product.findUnique({
+    where: { id: productId },
+    include: { categories: { select: { id: true } }, _count: { select: { optionValues: true } } },
+  });
   if (!before) return { error: "This product no longer exists." };
+  if (before.productTypeId !== data.productTypeId && before._count.optionValues > 0) {
+    return invalid({ productTypeId: "Remove this product's option values first — they belong to its current type" });
+  }
   const slug = wantedSlug ? slugify(wantedSlug) : before.slug;
   if (slug !== before.slug && (await slugTaken(productId)(slug))) {
-    return { error: "Please fix the highlighted fields.", fieldErrors: { slug: "Another product already uses this web address" } };
+    return invalid({ slug: "Another product already uses this web address" });
   }
 
-  await prisma.product.update({ where: { id: productId }, data: { ...data, slug } });
-  const changes = diff(before, { ...data, slug });
+  await prisma.product.update({
+    where: { id: productId },
+    data: {
+      ...data,
+      slug,
+      specs,
+      categories: { set: categoryIds.map((cid) => ({ id: cid })) },
+    },
+  });
+  const changes = diff(
+    { ...before, specs: JSON.stringify(readSpecs(before.specs)), tags: before.tags.join(", "), categories: before.categories.map((c) => c.id).sort().join() },
+    { ...data, slug, specs: JSON.stringify(specs), tags: data.tags.join(", "), categories: [...categoryIds].sort().join() },
+  );
   if (Object.keys(changes).length) {
     await recordChange(user, {
       action: "product.update",
@@ -101,7 +161,13 @@ export async function duplicateProductAction(productId: string) {
   const user = await requireStaff();
   const source = await prisma.product.findUnique({
     where: { id: id.parse(productId) },
-    include: { media: true, variants: true, completeTheLook: { select: { id: true } } },
+    include: {
+      media: true,
+      optionValues: true,
+      variants: true,
+      categories: { select: { id: true } },
+      completeTheLook: { select: { id: true } },
+    },
   });
   if (!source) throw new Error("Product not found");
 
@@ -112,38 +178,45 @@ export async function duplicateProductAction(productId: string) {
         name: `${source.name} (copy)`,
         slug,
         description: source.description,
-        price: source.price,
-        salePrice: source.salePrice,
-        stock: source.stock,
-        material: source.material,
-        style: source.style,
-        hypoallergenic: source.hypoallergenic,
+        productTypeId: source.productTypeId,
+        brandId: source.brandId,
+        specs: source.specs as Prisma.InputJsonValue,
+        tags: source.tags,
         details: source.details,
         care: source.care,
-        categoryId: source.categoryId,
         status: "DRAFT", // copies start hidden from shoppers
         featured: false,
+        categories: { connect: source.categories },
         completeTheLook: { connect: source.completeTheLook },
       },
     });
-    const variantIds = new Map<string, string>();
-    for (const v of source.variants) {
-      const nv = await tx.productVariant.create({
-        data: {
-          productId: product.id,
-          name: v.name,
-          sku: null, // SKUs must be unique — set new ones on the copy
-          price: v.price,
-          salePrice: v.salePrice,
-          stock: v.stock,
-        },
+    // Old option value id → new one, so variants and photos point at the copies.
+    const valueIds = new Map<string, string>();
+    for (const v of source.optionValues) {
+      const nv = await tx.productOptionValue.create({
+        data: { productId: product.id, option: v.option, value: v.value, swatchColor: v.swatchColor, swatchImage: v.swatchImage, order: v.order },
       });
-      variantIds.set(v.id, nv.id);
+      valueIds.set(v.id, nv.id);
     }
+    const mapped = (vid: string | null) => (vid ? (valueIds.get(vid) ?? null) : null);
+    await tx.productVariant.createMany({
+      data: source.variants.map((v) => ({
+        productId: product.id,
+        option1Id: mapped(v.option1Id),
+        option2Id: mapped(v.option2Id),
+        option3Id: mapped(v.option3Id),
+        sku: null, // SKUs must be unique — set new ones on the copy
+        price: v.price,
+        salePrice: v.salePrice,
+        stock: v.stock,
+        weightGrams: v.weightGrams,
+        barcode: null,
+      })),
+    });
     await tx.productMedia.createMany({
       data: source.media.map((m) => ({
         productId: product.id,
-        variantId: m.variantId ? (variantIds.get(m.variantId) ?? null) : null,
+        optionValueId: mapped(m.optionValueId),
         url: m.url,
         type: m.type,
         alt: m.alt,
@@ -171,22 +244,27 @@ const mediaUrl = z
 
 const newMedia = z.array(z.object({ url: mediaUrl, type: z.enum(["IMAGE", "VIDEO"]) })).min(1).max(30);
 
-async function productName(productId: string) {
-  return (await prisma.product.findUnique({ where: { id: productId }, select: { name: true } }))?.name;
+async function checkOptionValue(productId: string, optionValueId: string | null) {
+  if (optionValueId && !(await prisma.productOptionValue.findFirst({ where: { id: optionValueId, productId } }))) {
+    throw new Error("That option value no longer exists — reload the page");
+  }
 }
 
-export async function addMediaAction(productId: string, items: { url: string; type: "IMAGE" | "VIDEO" }[], variantId: string | null) {
+/** Adds uploaded photos/videos; `optionValueId` = photos of that value (e.g. Navy). */
+export async function addMediaAction(
+  productId: string,
+  items: { url: string; type: "IMAGE" | "VIDEO" }[],
+  optionValueId: string | null,
+) {
   const user = await requireStaff();
   const pid = id.parse(productId);
   const media = newMedia.parse(items);
-  const vid = variantId ? id.parse(variantId) : null;
-  if (vid && !(await prisma.productVariant.findFirst({ where: { id: vid, productId: pid } }))) {
-    throw new Error("Finish not found");
-  }
+  const ovid = optionValueId ? id.parse(optionValueId) : null;
+  await checkOptionValue(pid, ovid);
   const last = await prisma.productMedia.aggregate({ where: { productId: pid }, _max: { order: true } });
   const start = (last._max.order ?? -1) + 1;
   await prisma.productMedia.createMany({
-    data: media.map((m, i) => ({ productId: pid, variantId: vid, url: m.url, type: m.type, order: start + i })),
+    data: media.map((m, i) => ({ productId: pid, optionValueId: ovid, url: m.url, type: m.type, order: start + i })),
   });
   await recordChange(user, {
     action: "product.media.add",
@@ -196,17 +274,18 @@ export async function addMediaAction(productId: string, items: { url: string; ty
   });
 }
 
-export async function updateMediaAction(mediaId: string, patch: { alt?: string; variantId?: string | null }) {
+export async function updateMediaAction(mediaId: string, patch: { alt?: string; optionValueId?: string | null }) {
   const user = await requireStaff();
   const media = await prisma.productMedia.findUnique({ where: { id: id.parse(mediaId) } });
   if (!media) throw new Error("Photo not found");
   const data = z
-    .object({ alt: z.string().trim().max(200).optional(), variantId: id.nullable().optional() })
+    .object({ alt: z.string().trim().max(200).optional(), optionValueId: id.nullable().optional() })
     .parse(patch);
-  if (data.variantId && !(await prisma.productVariant.findFirst({ where: { id: data.variantId, productId: media.productId } }))) {
-    throw new Error("Finish not found");
-  }
-  const next = { ...(data.alt !== undefined && { alt: data.alt || null }), ...(data.variantId !== undefined && { variantId: data.variantId }) };
+  if (data.optionValueId) await checkOptionValue(media.productId, data.optionValueId);
+  const next = {
+    ...(data.alt !== undefined && { alt: data.alt || null }),
+    ...(data.optionValueId !== undefined && { optionValueId: data.optionValueId }),
+  };
   await prisma.productMedia.update({ where: { id: media.id }, data: next });
   await recordChange(user, {
     action: "product.media.update",
@@ -248,203 +327,4 @@ export async function signUploadAction(paramsToSign: Record<string, unknown>) {
     throw new Error("Uploads must go into the shop's folder");
   }
   return signParams(params, config.apiSecret);
-}
-
-// ── Finishes / colours ──────────────────────────────────────────
-
-const variantSchema = z
-  .object({
-    productId: id,
-    id: z.preprocess((v) => v || undefined, id.optional()),
-    name: z.string().trim().min(1, "Enter a name, e.g. Gold").max(60),
-    sku: optionalText(60).transform((v) => v?.toUpperCase() ?? null),
-    price: optionalMoney,
-    salePrice: optionalMoney,
-    stock: wholeNumber,
-  })
-  .refine((d) => d.salePrice === null || d.price !== null, {
-    path: ["salePrice"],
-    message: "Set this finish's own price too, or leave both blank to use the product's",
-  })
-  .refine((d) => d.salePrice === null || d.price === null || d.salePrice < d.price, {
-    path: ["salePrice"],
-    message: "Sale price must be lower than the price",
-  });
-
-export async function saveVariantAction(_prev: AdminFormState, formData: FormData): Promise<AdminFormState> {
-  const user = await requireStaff();
-  const parsed = variantSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return fieldErrors(parsed.error);
-  const { productId, id: variantId, ...data } = parsed.data;
-
-  if (data.sku && (await prisma.productVariant.findFirst({ where: { sku: data.sku, ...(variantId && { id: { not: variantId } }) } }))) {
-    return { error: "Please fix the highlighted fields.", fieldErrors: { sku: "Another finish already uses this SKU" } };
-  }
-  if (await prisma.productVariant.findFirst({ where: { productId, name: { equals: data.name, mode: "insensitive" }, ...(variantId && { id: { not: variantId } }) } })) {
-    return { error: "Please fix the highlighted fields.", fieldErrors: { name: "This product already has a finish with that name" } };
-  }
-
-  if (variantId) {
-    const before = await prisma.productVariant.findFirst({ where: { id: variantId, productId } });
-    if (!before) return { error: "This finish no longer exists." };
-    await prisma.productVariant.update({ where: { id: variantId }, data });
-    await recordChange(user, {
-      action: "product.variant.update",
-      entity: "Product",
-      entityId: productId,
-      detail: { name: await productName(productId), finish: data.name, changes: diff(before, data) },
-    });
-    return { message: `${data.name} saved.` };
-  }
-
-  if (!(await prisma.product.findUnique({ where: { id: productId } }))) return { error: "This product no longer exists." };
-  await prisma.productVariant.create({ data: { ...data, productId } });
-  await recordChange(user, {
-    action: "product.variant.create",
-    entity: "Product",
-    entityId: productId,
-    detail: { name: await productName(productId), finish: data.name },
-  });
-  return { message: `${data.name} added.` };
-}
-
-export async function deleteVariantAction(variantId: string) {
-  const user = await requireStaff();
-  // Its photos become general product photos (relation is SET NULL), not deleted.
-  const variant = await prisma.productVariant.delete({ where: { id: id.parse(variantId) } });
-  await recordChange(user, {
-    action: "product.variant.delete",
-    entity: "Product",
-    entityId: variant.productId,
-    detail: { name: await productName(variant.productId), finish: variant.name },
-  });
-}
-
-// ── CSV import ──────────────────────────────────────────────────
-
-export type ImportState = { error?: string; created?: number; updated?: number; problems?: string[] } | undefined;
-
-const yes = (v: string | undefined) => /^(1|y|yes|true|live)$/i.test(v ?? "");
-const csvMoney = (v: string | undefined) => (v ? money.safeParse(v.replace(/^\$/, "")) : null);
-
-export async function importProductsAction(_prev: ImportState, formData: FormData): Promise<ImportState> {
-  const user = await requireStaff();
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Choose a CSV file to import." };
-  if (file.size > 2_000_000) return { error: "That file is too big (2 MB max)." };
-
-  const rows = parseCsvObjects(await file.text());
-  if (rows.length === 0) return { error: "The file has no product rows." };
-  if (!("name" in rows[0]) || !("price" in rows[0])) {
-    return { error: "The first row must be the column names, including at least name and price. Export first to see the format." };
-  }
-
-  // Rows with the same slug (or name) are one product with several finishes.
-  const groups = new Map<string, { line: number; row: Record<string, string> }[]>();
-  rows.forEach((row, i) => {
-    const key = slugify(row.slug || row.name || "");
-    if (!key) return;
-    groups.set(key, [...(groups.get(key) ?? []), { line: i + 2, row }]);
-  });
-
-  const categories = await prisma.category.findMany({ select: { id: true, slug: true, name: true } });
-  const findCategory = (v: string) =>
-    categories.find((c) => c.slug === slugify(v) || c.name.toLowerCase() === v.toLowerCase());
-
-  let created = 0;
-  let updated = 0;
-  const problems: string[] = [];
-
-  for (const [slug, lines] of groups) {
-    const { line, row } = lines[0];
-    const label = `Row ${line} (${row.name || slug})`;
-    const price = csvMoney(row.price);
-    const sale = csvMoney(row.sale_price);
-    const category = row.category ? findCategory(row.category) : undefined;
-
-    if (!row.name) { problems.push(`${label}: missing name`); continue; }
-    if (!price?.success) { problems.push(`${label}: price must be a number like 24.95`); continue; }
-    if (sale && !sale.success) { problems.push(`${label}: sale_price must be a number like 19.95`); continue; }
-    const salePrice = sale?.success ? sale.data : null;
-    if (salePrice !== null && salePrice >= price.data) { problems.push(`${label}: sale_price must be lower than price`); continue; }
-
-    const existing = await prisma.product.findUnique({ where: { slug }, include: { media: { select: { url: true } } } });
-    if (!existing && !category) { problems.push(`${label}: unknown category "${row.category ?? ""}"`); continue; }
-
-    const data = {
-      name: row.name.slice(0, 120),
-      price: price.data,
-      salePrice,
-      stock: Math.max(0, Number.parseInt(row.stock || "0", 10) || 0),
-      material: row.material || null,
-      style: row.style?.toLowerCase() || null,
-      hypoallergenic: yes(row.hypoallergenic),
-      featured: yes(row.featured),
-      status: yes(row.status) ? ("LIVE" as const) : ("DRAFT" as const),
-      description: row.description || null,
-      details: row.details || null,
-      care: row.care || null,
-      seoTitle: row.seo_title || null,
-      seoDescription: row.seo_description || null,
-      ...(category && { categoryId: category.id }),
-    };
-
-    try {
-      await prisma.$transaction(async (tx) => {
-        const product = existing
-          ? await tx.product.update({ where: { id: existing.id }, data })
-          : await tx.product.create({ data: { ...data, slug, categoryId: category!.id } });
-
-        // New photo URLs (separated by |) are added after the existing ones.
-        const have = new Set(existing?.media.map((m) => m.url));
-        const urls = (row.images ?? "").split("|").map((u) => u.trim()).filter((u) => /^https:\/\//.test(u) && !have.has(u));
-        if (urls.length) {
-          const last = await tx.productMedia.aggregate({ where: { productId: product.id }, _max: { order: true } });
-          await tx.productMedia.createMany({
-            data: urls.map((url, i) => ({
-              productId: product.id,
-              url,
-              type: /\/video\/|\.(mp4|mov|webm)$/i.test(url) ? ("VIDEO" as const) : ("IMAGE" as const),
-              order: (last._max.order ?? -1) + 1 + i,
-            })),
-          });
-        }
-
-        // Finishes, matched by name.
-        for (const { line: vLine, row: v } of lines) {
-          if (!v.variant) continue;
-          const vPrice = csvMoney(v.variant_price);
-          const vSale = csvMoney(v.variant_sale_price);
-          if ((vPrice && !vPrice.success) || (vSale && !vSale.success)) {
-            throw new Error(`Row ${vLine}: variant prices must be numbers like 24.95`);
-          }
-          const vData = {
-            sku: v.variant_sku?.toUpperCase() || null,
-            price: vPrice?.success ? vPrice.data : null,
-            salePrice: vSale?.success ? vSale.data : null,
-            stock: Math.max(0, Number.parseInt(v.variant_stock || "0", 10) || 0),
-          };
-          const match = await tx.productVariant.findFirst({
-            where: { productId: product.id, name: { equals: v.variant, mode: "insensitive" } },
-          });
-          if (match) await tx.productVariant.update({ where: { id: match.id }, data: vData });
-          else await tx.productVariant.create({ data: { ...vData, productId: product.id, name: v.variant.slice(0, 60) } });
-        }
-      });
-      if (existing) updated++;
-      else created++;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "could not be saved";
-      problems.push(/Unique constraint/.test(msg) ? `${label}: a SKU is already used by another product` : `${label}: ${msg.split("\n").pop()}`);
-    }
-  }
-
-  if (created || updated) {
-    await recordChange(user, {
-      action: "product.import",
-      entity: "Product",
-      detail: { file: file.name, created, updated, problems: problems.length },
-    });
-  }
-  return { created, updated, problems };
 }

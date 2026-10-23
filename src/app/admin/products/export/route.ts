@@ -1,34 +1,54 @@
 import { requireStaff } from "@/lib/auth/dal";
 import { toCsv } from "@/lib/admin/csv";
 import { prisma } from "@/lib/prisma";
+import { readSpecFields, readSpecs } from "@/lib/product-types";
 
-/** Downloads every product as CSV — one row per finish (or one row if it has none). Re-import with /admin/products/import. */
+/**
+ * Downloads every product as CSV — one row per variant. Specs get a
+ * "spec:<label>" column each; option1–3 are the values for the product
+ * type's options (e.g. M, Navy for a T-shirt). Re-import with /admin/products/import.
+ */
 export async function GET() {
   await requireStaff("/admin/products");
 
-  const products = await prisma.product.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      category: { select: { slug: true } },
-      media: { where: { variantId: null }, orderBy: { order: "asc" }, select: { url: true } },
-      variants: { orderBy: { createdAt: "asc" } },
-    },
-  });
+  const [products, types] = await Promise.all([
+    prisma.product.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        productType: { select: { name: true } },
+        brand: { select: { name: true } },
+        categories: { select: { slug: true } },
+        media: { where: { optionValueId: null }, orderBy: { order: "asc" }, select: { url: true } },
+        variants: {
+          orderBy: { createdAt: "asc" },
+          include: { option1: { select: { value: true } }, option2: { select: { value: true } }, option3: { select: { value: true } } },
+        },
+      },
+    }),
+    prisma.productType.findMany({ orderBy: { name: "asc" }, select: { specFields: true } }),
+  ]);
+
+  // One column per spec label used by any product type.
+  const specLabels = [...new Set(types.flatMap((t) => readSpecFields(t.specFields).map((f) => f.label)))];
 
   const header = [
-    "slug", "name", "status", "category", "price", "sale_price", "stock", "material", "style",
-    "hypoallergenic", "featured", "description", "details", "care", "seo_title", "seo_description", "images",
-    "variant", "variant_sku", "variant_price", "variant_sale_price", "variant_stock",
+    "slug", "name", "status", "type", "brand", "categories", "tags", "featured", "description", "details", "care",
+    "seo_title", "seo_description", "images", ...specLabels.map((l) => `spec:${l}`),
+    "option1", "option2", "option3", "sku", "price", "sale_price", "stock", "weight_grams", "barcode",
   ];
   const money = (d: { toString(): string } | null) => (d === null ? "" : Number(d).toFixed(2));
+  const specText = (v: unknown) => (v === true ? "yes" : v === false ? "no" : (v ?? ""));
   const rows = products.flatMap((p) => {
+    const specs = readSpecs(p.specs);
     const base = [
-      p.slug, p.name, p.status.toLowerCase(), p.category.slug, money(p.price), money(p.salePrice), p.stock,
-      p.material, p.style, p.hypoallergenic ? "yes" : "no", p.featured ? "yes" : "no", p.description, p.details,
-      p.care, p.seoTitle, p.seoDescription, p.media.map((m) => m.url).join(" | "),
+      p.slug, p.name, p.status.toLowerCase(), p.productType.name, p.brand?.name, p.categories.map((c) => c.slug).join(" | "),
+      p.tags.join(" | "), p.featured ? "yes" : "no", p.description, p.details, p.care, p.seoTitle, p.seoDescription,
+      p.media.map((m) => m.url).join(" | "), ...specLabels.map((l) => specText(specs[l])),
     ];
-    if (!p.variants.length) return [[...base, "", "", "", "", ""]];
-    return p.variants.map((v) => [...base, v.name, v.sku, money(v.price), money(v.salePrice), v.stock]);
+    return p.variants.map((v) => [
+      ...base,
+      v.option1?.value, v.option2?.value, v.option3?.value, v.sku, money(v.price), money(v.salePrice), v.stock, v.weightGrams, v.barcode,
+    ]);
   });
 
   const date = new Date().toISOString().slice(0, 10);

@@ -7,21 +7,41 @@ import { priceBag, tidyItems, type PricingDiscount, type PricingInput, type Pric
 
 const NOW = new Date("2026-10-13T00:00:00Z");
 
-function product(id: string, overrides: Partial<PricingProduct> = {}): PricingProduct {
+type Variant = PricingProduct["variants"][number];
+
+/**
+ * A product with no options: one default variant ("<id>-v") holding the price
+ * and stock. Pass `variants` to give it options instead.
+ */
+function product(
+  id: string,
+  {
+    price = 20,
+    salePrice = null,
+    stock = 50,
+    ...overrides
+  }: Partial<PricingProduct> & { price?: number; salePrice?: number | null; stock?: number } = {},
+): PricingProduct {
   return {
     id,
     slug: id,
     name: id,
     live: true,
-    categoryId: "earrings",
-    price: 20,
-    salePrice: null,
-    stock: 50,
+    categoryIds: ["earrings"],
     image: null,
-    variants: [],
+    variants: [{ id: `${id}-v`, label: null, price, salePrice, stock, image: null }],
     ...overrides,
   };
 }
+
+const variant = (id: string, label: string, price: number, stock = 10, salePrice: number | null = null): Variant => ({
+  id,
+  label,
+  price,
+  salePrice,
+  stock,
+  image: null,
+});
 
 function discount(overrides: Partial<PricingDiscount>): PricingDiscount {
   return {
@@ -88,13 +108,9 @@ describe("priceBag", () => {
     assert.equal(t.total, 50);
   });
 
-  it("uses a finish's own price and stock", () => {
+  it("uses each variant's own price and stock", () => {
     const p = product("a", {
-      price: 24.95,
-      variants: [
-        { id: "gold", name: "Gold", price: 29.95, salePrice: null, stock: 2, image: null },
-        { id: "silver", name: "Silver", price: null, salePrice: null, stock: 0, image: null },
-      ],
+      variants: [variant("gold", "Gold", 29.95, 2), variant("silver", "Silver", 24.95, 0)],
     });
     const t = priceBag(
       bag({
@@ -110,7 +126,8 @@ describe("priceBag", () => {
     assert.equal(gold.qty, 2, "lowered to the 2 in stock");
     assert.equal(gold.issue, "reduced");
     assert.equal(silver.issue, "sold-out");
-    assert.equal(t.subtotal, 59.9, "sold-out finish isn't charged");
+    assert.equal(gold.variantName, "Gold");
+    assert.equal(t.subtotal, 59.9, "sold-out variant isn't charged");
     assert.equal(t.canCheckout, false, "sold-out item must be removed first");
   });
 
@@ -173,13 +190,77 @@ describe("priceBag", () => {
           product("a", { price: 20 }),
           product("b", { price: 15 }),
           product("c", { price: 12 }),
-          product("ring", { price: 5, categoryId: "rings" }),
+          product("ring", { price: 5, categoryIds: ["rings"] }),
         ],
         discounts: [discount({ type: "BUY_X_GET_Y", scope: "CATEGORY", categoryId: "earrings", buyQuantity: 3, getQuantity: 1 })],
       }),
     );
     assert.equal(t.discount?.amount, 12, "the $12 earring is free, not the $5 ring");
     assert.equal(t.discount?.label, "Buy 3, get 1 free");
+  });
+
+  it("prices multi-option variants (Size × Colour) and rejects combinations that don't exist", () => {
+    const tee = product("tee", {
+      categoryIds: ["t-shirts", "clothing"],
+      variants: [
+        variant("s-navy", "S / Navy", 39.95),
+        variant("m-navy", "M / Navy", 39.95, 1),
+        variant("xl-navy", "XL / Navy", 44.95, 10, 34.95),
+      ],
+    });
+    const t = priceBag(
+      bag({
+        items: [
+          { productId: "tee", variantId: "m-navy", qty: 2 },
+          { productId: "tee", variantId: "xl-navy", qty: 1 },
+          { productId: "tee", variantId: "xl-white", qty: 1 }, // deleted / never existed
+          { productId: "tee", variantId: null, qty: 1 }, // no size/colour picked
+        ],
+        products: [tee],
+      }),
+    );
+    const [m, xl, white, none] = t.lines;
+    assert.equal(m.variantName, "M / Navy");
+    assert.equal(m.qty, 1, "only 1 M / Navy left");
+    assert.equal(xl.unitPrice, 34.95);
+    assert.equal(xl.compareAtPrice, 44.95);
+    assert.equal(white.issue, "unavailable");
+    assert.equal(none.issue, "unavailable", "a product with several variants needs one picked");
+    assert.equal(t.subtotal, 74.9); // 39.95 + 34.95
+  });
+
+  it("applies a category discount to products in categories inside it", () => {
+    // The product is in "T-shirts", which sits inside "Clothing" (both listed by calculateTotals).
+    const t = priceBag(
+      bag({
+        items: [
+          { productId: "tee", variantId: null, qty: 1 },
+          { productId: "watch", variantId: null, qty: 1 },
+        ],
+        products: [
+          product("tee", { price: 40, categoryIds: ["t-shirts", "clothing"] }),
+          product("watch", { price: 100, categoryIds: ["watches"] }),
+        ],
+        discounts: [discount({ scope: "CATEGORY", categoryId: "clothing", value: 25 })],
+      }),
+    );
+    assert.equal(t.discount?.amount, 10, "25% off the $40 tee only");
+  });
+
+  it("reads old bags that saved a product without a variant", () => {
+    const t = priceBag(
+      bag({
+        items: [
+          { productId: "a", variantId: null, qty: 1 }, // saved before products had variants
+          { productId: "a", variantId: "a-v", qty: 2 },
+        ],
+        products: [product("a", { price: 10 })],
+      }),
+    );
+    assert.equal(t.lines.length, 1, "both lines are the same variant, so they merge");
+    assert.equal(t.lines[0].variantId, "a-v");
+    assert.equal(t.lines[0].qty, 3);
+    assert.equal(t.subtotal, 30);
   });
 
   it("keeps the better of an automatic offer and the entered code", () => {

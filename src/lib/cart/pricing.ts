@@ -11,7 +11,11 @@ import { formatPrice } from "@/lib/format";
 
 // ── Inputs ──────────────────────────────────────────────────────
 
-/** What a bag stores: a product (and finish) and how many. Never prices. */
+/**
+ * What a bag stores: a product variant and how many. Never prices.
+ * variantId can be null in bags saved before every product had variants —
+ * it then means the product's only variant.
+ */
 export type BagItem = { productId: string; variantId: string | null; qty: number };
 
 export type PricingProduct = {
@@ -20,17 +24,15 @@ export type PricingProduct = {
   name: string;
   /** False when the product has been taken off sale (DRAFT). */
   live: boolean;
-  categoryId: string;
-  price: number;
-  salePrice: number | null;
-  /** Used when the product has no finishes. */
-  stock: number;
+  /** Its categories and every category above them (for category discounts). */
+  categoryIds: string[];
   image: string | null;
+  /** Every buyable combination — always at least one. Works the same for any product type. */
   variants: {
     id: string;
-    name: string;
-    /** null = same price and sale price as the product. */
-    price: number | null;
+    /** e.g. "M / Navy"; null for a product with no options. */
+    label: string | null;
+    price: number;
     salePrice: number | null;
     stock: number;
     image: string | null;
@@ -81,7 +83,7 @@ export type PricingInput = {
 
 export type LineIssue =
   | "sold-out" // none left — not counted in the total
-  | "unavailable" // product/finish no longer sold — not counted
+  | "unavailable" // product/variant no longer sold — not counted
   | "reduced"; // fewer left than asked for — quantity lowered
 
 export type BagLine = {
@@ -137,7 +139,7 @@ const dollars = (c: number) => c / 100;
 export const lineKey = (productId: string, variantId: string | null) => `${productId}:${variantId ?? ""}`;
 export const normalizeCode = (code: string) => code.trim().toUpperCase().slice(0, 40);
 
-/** Combines repeated lines for the same product + finish and keeps quantities sensible. */
+/** Combines repeated lines for the same product + variant and keeps quantities sensible. */
 export function tidyItems(items: BagItem[]): BagItem[] {
   const merged = new Map<string, BagItem>();
   for (const item of items) {
@@ -166,7 +168,7 @@ function label(d: PricingDiscount) {
   return d.code ? `${d.code} · ${what}` : what;
 }
 
-type Counted = { productId: string; categoryId: string; unitCents: number; qty: number };
+type Counted = { productId: string; categoryIds: string[]; unitCents: number; qty: number };
 
 /** Works out a discount on the counted lines, or says why it can't be used. */
 function evaluate(
@@ -194,7 +196,7 @@ function evaluate(
 
   const eligible = lines.filter((l) =>
     d.scope === "CATEGORY"
-      ? l.categoryId === d.categoryId
+      ? d.categoryId !== null && l.categoryIds.includes(d.categoryId)
       : d.scope === "PRODUCTS"
         ? d.productIds.includes(l.productId)
         : true,
@@ -231,21 +233,27 @@ function evaluate(
 export function priceBag(input: PricingInput): Totals {
   const products = new Map(input.products.map((p) => [p.id, p]));
 
+  // Old bags may say "no variant" for a product with just one: use that one.
+  const resolved = input.items.map((item) => {
+    const p = products.get(item.productId);
+    return !item.variantId && p?.variants.length === 1 ? { ...item, variantId: p.variants[0].id } : item;
+  });
+
   // 1. Lines at today's prices and stock.
   const lines: BagLine[] = [];
-  for (const item of tidyItems(input.items)) {
+  for (const item of tidyItems(resolved)) {
     const p = products.get(item.productId);
     if (!p) continue; // deleted product — drop it quietly
 
+    // The exact variant must still exist (e.g. not deleted, and not a missing combination).
     const variant = item.variantId ? p.variants.find((v) => v.id === item.variantId) : undefined;
-    // A product with finishes needs one picked; one without must not have one.
-    const valid = p.live && (p.variants.length ? !!variant : !item.variantId);
+    const valid = p.live && !!variant;
 
-    const [price, sale] =
-      variant && variant.price !== null ? [variant.price, variant.salePrice] : [p.price, p.salePrice];
+    const price = variant?.price ?? 0;
+    const sale = variant?.salePrice ?? null;
     const onSale = sale !== null && sale < price;
     const unitPrice = onSale ? sale : price;
-    const stock = variant ? variant.stock : p.stock;
+    const stock = variant?.stock ?? 0;
     const maxQty = Math.max(0, Math.min(stock, MAX_QTY));
 
     let qty = item.qty;
@@ -264,7 +272,7 @@ export function priceBag(input: PricingInput): Totals {
       variantId: item.variantId,
       slug: p.slug,
       name: p.name,
-      variantName: variant?.name ?? null,
+      variantName: variant?.label ?? null,
       image: variant?.image ?? p.image,
       unitPrice,
       compareAtPrice: onSale ? price : null,
@@ -279,7 +287,7 @@ export function priceBag(input: PricingInput): Totals {
     .filter((l) => l.issue === null || l.issue === "reduced")
     .map((l) => ({
       productId: l.productId,
-      categoryId: products.get(l.productId)!.categoryId,
+      categoryIds: products.get(l.productId)!.categoryIds,
       unitCents: cents(l.unitPrice),
       qty: l.qty,
     }));

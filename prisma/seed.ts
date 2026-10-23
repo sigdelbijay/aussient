@@ -2,6 +2,7 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client";
+import type { SpecField } from "../src/lib/product-types";
 
 // Seeds connect over the DIRECT connection (port 5432), same as migrations.
 const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
@@ -12,12 +13,25 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
 const img = (label: string, bg: string, size = "800x1000") =>
   `https://placehold.co/${size}/${bg}/ffffff/png?text=${encodeURIComponent(label)}`;
 
-// Finishes every seeded product comes in (each gets its own SKU, stock and photo).
+// Shop-wide text shoppers see (Site settings). Lines become bullet points.
+const SHOP_TEXT = {
+  tagline: "Fashion, accessories & lifestyle",
+  metaDescription: "On-trend clothing, watches, jewellery and accessories. New arrivals weekly, free shipping over $50 and easy returns.",
+  deliveryInfo: "Orders placed before 2pm (AEST) on a weekday ship the same day.\nStandard delivery takes 2–6 business days Australia-wide.\nYou'll get a tracking link by email as soon as it ships.",
+  returnsInfo: "Changed your mind? Return unworn, unused items within 30 days.\nEarrings can't be returned for hygiene reasons unless faulty.\nReturns are free with the prepaid label in your parcel.",
+};
+
+// Finishes every seeded jewellery product comes in (each gets its own SKU, stock and photo).
 const finishes = [
-  { name: "Gold", suffix: "GLD", bg: "c9a961" },
-  { name: "Silver", suffix: "SLV", bg: "b8b8c0" },
-  { name: "Rose Gold", suffix: "RSE", bg: "d9a7a0" },
+  { name: "Gold", color: "#d8bc7c", bg: "c9a961" },
+  { name: "Silver", color: "#cfd0d6", bg: "b8b8c0" },
+  { name: "Rose Gold", color: "#dfa99b", bg: "d9a7a0" },
 ];
+
+// Old jewellery categories → their product types.
+const JEWELLERY_TYPE = { earrings: "Earrings", necklaces: "Necklace", rings: "Ring" } as const;
+const CLOSURE: Record<string, string | undefined> = { earrings: "Butterfly back", necklaces: "Lobster clasp" };
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 type SeedProduct = {
   name: string;
@@ -41,7 +55,7 @@ type SeedProduct = {
 };
 
 const DETAILS = (size: string) =>
-  `Size: ${size}\nClosure: butterfly back / clasp as pictured\nNickel-free and lead-free\nSold individually as a pair or single piece as described`;
+  `Size: ${size}\nNickel-free and lead-free\nSold individually as a pair or single piece as described`;
 const CARE =
   "Keep away from water, perfume and lotions. Store in the Aussient pouch when you're not wearing it, and wipe gently with a soft cloth to keep it shining.";
 
@@ -92,96 +106,355 @@ async function main() {
   });
   console.log(`✓ Admin user ready: ${admin.email}`);
 
-  // ── Categories ──────────────────────────────────────────────
-  const categorySeed = [
-    { name: "Earrings", slug: "earrings", order: 0, bg: "1a1a1a" },
-    { name: "Necklaces", slug: "necklaces", order: 1, bg: "c9a961" },
-    { name: "Rings", slug: "rings", order: 2, bg: "ff2d6f" },
+  // ── Size guide ──────────────────────────────────────────────
+  const teeGuide =
+    (await prisma.sizeGuide.findFirst({ where: { name: "T-shirt sizes" } })) ??
+    (await prisma.sizeGuide.create({
+      data: {
+        name: "T-shirt sizes",
+        table: {
+          columns: ["Size", "Chest (cm)", "Length (cm)"],
+          rows: [
+            ["S", "92", "70"],
+            ["M", "100", "72"],
+            ["L", "108", "74"],
+            ["XL", "116", "76"],
+          ],
+        },
+        notes: "AU sizes. Measurements are of the garment laid flat, in cm.",
+      },
+    }));
+
+  // ── Product types ───────────────────────────────────────────
+  // Each type sets what shoppers pick (options) and the facts listed (specs).
+  const jewellerySpecs: SpecField[] = [
+    { label: "Material", kind: "pick", choices: ["Gold-plated brass", "Stainless steel", "Sterling silver", "Titanium"], filterable: true },
+    { label: "Style", kind: "pick", choices: [...new Set(products.map((p) => capitalise(p.style)))].sort(), filterable: true },
+    { label: "Closure", kind: "text" },
+    { label: "Hypoallergenic", kind: "yes-no", filterable: true },
+  ];
+  const typeSeed: { name: string; optionNames: string[]; specFields: SpecField[]; sizeGuideId?: string }[] = [
+    { name: "Earrings", optionNames: ["Finish"], specFields: jewellerySpecs },
+    { name: "Necklace", optionNames: ["Finish"], specFields: jewellerySpecs },
+    { name: "Ring", optionNames: ["Finish"], specFields: jewellerySpecs },
+    {
+      name: "Watch",
+      optionNames: ["Strap colour"],
+      specFields: [
+        { label: "Movement", kind: "pick", choices: ["Quartz", "Automatic", "Solar"], filterable: true },
+        { label: "Case size", kind: "number", unit: "mm", filterable: true },
+        { label: "Water resistance", kind: "pick", choices: ["30 m", "50 m", "100 m"], filterable: true },
+        { label: "Warranty", kind: "text" },
+      ],
+    },
+    {
+      name: "T-shirt",
+      optionNames: ["Size", "Colour"],
+      specFields: [
+        { label: "Fabric", kind: "pick", choices: ["100% cotton", "Organic cotton", "Cotton blend"], filterable: true },
+        { label: "Fit", kind: "pick", choices: ["Regular", "Relaxed", "Slim"], filterable: true },
+        { label: "Care", kind: "text" },
+      ],
+      sizeGuideId: teeGuide.id,
+    },
+  ];
+  const types: Record<string, string> = {};
+  for (const t of typeSeed) {
+    const data = { optionNames: t.optionNames, specFields: t.specFields, sizeGuideId: t.sizeGuideId ?? null };
+    const type = await prisma.productType.upsert({ where: { name: t.name }, update: data, create: { name: t.name, ...data } });
+    types[t.name] = type.id;
+  }
+  console.log(`✓ ${typeSeed.length} product types ready (${typeSeed.map((t) => t.name).join(", ")})`);
+
+  // ── Brands ──────────────────────────────────────────────────
+  const brand = await prisma.brand.upsert({
+    where: { slug: "southern-time" },
+    update: {},
+    create: {
+      name: "Southern Time",
+      slug: "southern-time",
+      logo: img("Southern Time", "1a1a1a", "400x200"),
+      description: "Everyday watches designed in Melbourne, built to last.",
+    },
+  });
+  if (!brand.description) {
+    await prisma.brand.update({ where: { id: brand.id }, data: { description: "Everyday watches designed in Melbourne, built to last." } });
+  }
+
+  // ── Categories (nested up to 3 levels) ──────────────────────
+  const categorySeed: { name: string; slug: string; order: number; bg: string; parent?: string }[] = [
+    { name: "Jewellery", slug: "jewellery", order: 0, bg: "c9a961" },
+    { name: "Earrings", slug: "earrings", order: 0, bg: "1a1a1a", parent: "jewellery" },
+    { name: "Necklaces", slug: "necklaces", order: 1, bg: "c9a961", parent: "jewellery" },
+    { name: "Rings", slug: "rings", order: 2, bg: "ff2d6f", parent: "jewellery" },
+    { name: "Watches", slug: "watches", order: 1, bg: "3a4a5a" },
+    { name: "Clothing", slug: "clothing", order: 2, bg: "6b8f71" },
+    { name: "Tops", slug: "tops", order: 0, bg: "6b8f71", parent: "clothing" },
+    { name: "T-shirts", slug: "t-shirts", order: 0, bg: "6b8f71", parent: "tops" },
   ];
   const categories: Record<string, string> = {};
   for (const c of categorySeed) {
-    const category = await prisma.category.upsert({
-      where: { slug: c.slug },
-      update: { name: c.name, order: c.order, image: img(c.name, c.bg) },
-      create: {
-        name: c.name,
-        slug: c.slug,
-        order: c.order,
-        image: img(c.name, c.bg),
-      },
-    });
+    const data = { name: c.name, order: c.order, image: img(c.name, c.bg), parentId: c.parent ? categories[c.parent] : null };
+    const category = await prisma.category.upsert({ where: { slug: c.slug }, update: data, create: { ...data, slug: c.slug } });
     categories[c.slug] = category.id;
   }
-  console.log(`✓ ${categorySeed.length} categories ready`);
+  console.log(`✓ ${categorySeed.length} categories ready (Jewellery > Earrings…, Watches, Clothing > Tops > T-shirts)`);
 
-  // ── Products (with variants, per-finish photos and pairings) ──
+  // ── Products ────────────────────────────────────────────────
   const ids: Record<string, string> = {};
-  for (const p of products) {
+
+  /**
+   * Creates (or refreshes) a product with its option values, one variant per
+   * combination, and photos. Re-running the seed rebuilds options, variants and photos.
+   */
+  async function seedProduct(p: {
+    slug: string;
+    name: string;
+    type: string;
+    categories: string[];
+    description: string;
+    specs: Record<string, string | number | boolean>;
+    details?: string;
+    care?: string;
+    featured?: boolean;
+    brandId?: string;
+    tags?: string[];
+    /** Option values per option, in the type's order. `color` = swatch hex, `bg` = placeholder photo colour. */
+    options: { value: string; color?: string; bg?: string }[][];
+    /** One per combination (in the order of `options`); return null to skip a combination. */
+    variant: (values: string[]) => { price: number; salePrice?: number; stock: number } | null;
+    video?: string;
+    /** Placeholder photo shape: square (watches, jewellery) or tall (clothing). */
+    photo?: "square" | "tall";
+  }) {
+    const size = p.photo === "tall" ? "800x1067" : "1000x1000";
     const data = {
       name: p.name,
       description: p.description,
-      price: p.price,
-      salePrice: p.salePrice ?? null,
-      stock: p.stock.reduce((a, b) => a + b, 0),
-      material: p.material,
-      style: p.style,
-      hypoallergenic: p.hypoallergenic ?? false,
-      details: DETAILS(p.category === "rings" ? "Adjustable, fits sizes N–Q" : "As pictured"),
-      care: CARE,
+      productTypeId: types[p.type],
+      brandId: p.brandId ?? null,
+      specs: p.specs,
+      tags: p.tags ?? [],
+      details: p.details ?? null,
+      care: p.care ?? null,
       status: "LIVE" as const,
       featured: p.featured ?? false,
-      categoryId: categories[p.category],
+      categories: { set: p.categories.map((slug) => ({ id: categories[slug] })) },
     };
     const product = await prisma.product.upsert({
       where: { slug: p.slug },
       update: data,
-      create: { ...data, slug: p.slug },
+      create: { ...data, slug: p.slug, categories: { connect: data.categories.set } },
     });
     ids[p.slug] = product.id;
 
-    // Rebuild media + variants so re-running the seed stays consistent.
     await prisma.productMedia.deleteMany({ where: { productId: product.id } });
+    await prisma.productOptionValue.deleteMany({ where: { productId: product.id } }); // also removes their variants
     await prisma.productVariant.deleteMany({ where: { productId: product.id } });
 
     await prisma.productMedia.createMany({
       data: [
-        { productId: product.id, url: img(p.name, "1a1a1a"), alt: `${p.name} — front`, order: 0 },
-        { productId: product.id, url: img(`${p.name} — on model`, "ff2d6f"), alt: `${p.name} — on model`, order: 1 },
-        ...(p.video
-          ? [{ productId: product.id, url: p.video, type: "VIDEO" as const, alt: `${p.name} — video`, order: 10 }]
-          : []),
+        { productId: product.id, url: img(p.name, "1a1a1a", size), alt: `${p.name} — front`, order: 0 },
+        { productId: product.id, url: img(`${p.name} — on model`, "ff2d6f", size), alt: `${p.name} — on model`, order: 1 },
+        ...(p.video ? [{ productId: product.id, url: p.video, type: "VIDEO" as const, alt: `${p.name} — video`, order: 10 }] : []),
       ],
     });
 
-    for (const [i, f] of finishes.entries()) {
-      // Variants inherit the product's price/sale price (null = same as product).
-      const variant = await prisma.productVariant.create({
-        data: {
-          productId: product.id,
-          name: f.name,
-          sku: `${p.slug.toUpperCase().replace(/-/g, "")}-${f.suffix}`,
-          price: p.finishPrices?.[i] ?? null,
-          stock: p.stock[i],
-        },
-      });
-      await prisma.productMedia.create({
-        data: {
-          productId: product.id,
-          variantId: variant.id,
-          url: img(`${p.name} — ${f.name}`, f.bg),
-          alt: `${p.name} in ${f.name}`,
-          order: 2 + i,
-        },
-      });
+    // Option values (plus a photo for each one that has a colour, e.g. the Navy photo).
+    const optionNames = typeSeed.find((t) => t.name === p.type)!.optionNames;
+    const valueIds: Record<string, string>[] = [];
+    let photo = 2;
+    for (const [slot, values] of p.options.entries()) {
+      valueIds[slot] = {};
+      for (const [order, v] of values.entries()) {
+        const row = await prisma.productOptionValue.create({
+          data: { productId: product.id, option: optionNames[slot], value: v.value, swatchColor: v.color ?? null, order },
+        });
+        valueIds[slot][v.value] = row.id;
+        if (v.bg) {
+          await prisma.productMedia.create({
+            data: { productId: product.id, optionValueId: row.id, url: img(`${p.name} — ${v.value}`, v.bg, size), alt: `${p.name} in ${v.value}`, order: photo++ },
+          });
+        }
+      }
     }
+
+    // Every combination of the option values (just one when there are no options).
+    const combos = p.options.reduce<string[][]>((acc, values) => acc.flatMap((c) => values.map((v) => [...c, v.value])), [[]]);
+    let count = 0;
+    for (const combo of combos) {
+      const v = p.variant(combo);
+      if (!v) continue;
+      await prisma.productVariant.create({
+        data: {
+          productId: product.id,
+          option1Id: combo[0] ? valueIds[0][combo[0]] : null,
+          option2Id: combo[1] ? valueIds[1][combo[1]] : null,
+          option3Id: combo[2] ? valueIds[2][combo[2]] : null,
+          sku: [p.slug.toUpperCase().replace(/-/g, ""), ...combo.map((c) => c.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))].join("-"),
+          price: v.price,
+          salePrice: v.salePrice ?? null,
+          stock: v.stock,
+        },
+      });
+      count++;
+    }
+    return count;
   }
+
+  // Jewellery: three finishes each.
+  for (const p of products) {
+    await seedProduct({
+      slug: p.slug,
+      name: p.name,
+      type: JEWELLERY_TYPE[p.category],
+      categories: [p.category],
+      description: p.description,
+      specs: {
+        Material: p.material,
+        Style: capitalise(p.style),
+        Hypoallergenic: p.hypoallergenic ?? false,
+        ...(CLOSURE[p.category] && { Closure: CLOSURE[p.category] }),
+      },
+      details: DETAILS(p.category === "rings" ? "Adjustable, fits sizes N–Q" : "As pictured"),
+      care: CARE,
+      featured: p.featured,
+      video: p.video,
+      options: [finishes.map((f) => ({ value: f.name, color: f.color, bg: f.bg }))],
+      variant: ([finish]) => {
+        const i = finishes.findIndex((f) => f.name === finish);
+        return { price: p.finishPrices?.[i] ?? p.price, salePrice: p.finishPrices?.[i] ? undefined : p.salePrice, stock: p.stock[i] };
+      },
+    });
+  }
+
+  // Watches: one option (strap colour), with a brand.
+  await seedProduct({
+    slug: "coastline-mesh-watch",
+    name: "Coastline Mesh Watch",
+    type: "Watch",
+    categories: ["watches"],
+    brandId: brand.id,
+    description: "A slim minimalist watch on a fine mesh strap that adjusts to any wrist.",
+    specs: { Movement: "Quartz", "Case size": 36, "Water resistance": "30 m", Warranty: "2 years" },
+    tags: ["gift"],
+    featured: true,
+    options: [
+      [
+        { value: "Silver", color: "#cfd0d6", bg: "b8b8c0" },
+        { value: "Gold", color: "#d8bc7c", bg: "c9a961" },
+        { value: "Black", color: "#18161d", bg: "1a1a1a" },
+      ],
+    ],
+    variant: ([strap]) => ({ price: 89.95, stock: strap === "Black" ? 4 : 25 }),
+  });
+  await seedProduct({
+    slug: "outback-field-watch",
+    name: "Outback Field Watch",
+    type: "Watch",
+    categories: ["watches"],
+    brandId: brand.id,
+    description: "A rugged automatic field watch with a leather strap and easy-read dial.",
+    specs: { Movement: "Automatic", "Case size": 40, "Water resistance": "100 m", Warranty: "2 years" },
+    tags: ["gift"],
+    options: [
+      [
+        { value: "Tan leather", color: "#a0703c", bg: "a0703c" },
+        { value: "Black leather", color: "#18161d", bg: "1a1a1a" },
+      ],
+    ],
+    variant: ([strap]) => (strap === "Tan leather" ? { price: 149.95, salePrice: 129.95, stock: 12 } : { price: 149.95, stock: 8 }),
+  });
+
+  // T-shirts: two options (Size × Colour), with the size guide from the product type.
+  const sizes = ["S", "M", "L", "XL"].map((value) => ({ value }));
+  await seedProduct({
+    slug: "everyday-crew-tee",
+    photo: "tall",
+    name: "Everyday Crew Tee",
+    type: "T-shirt",
+    categories: ["t-shirts"],
+    description: "A soft, mid-weight crew neck tee you'll reach for every day.",
+    specs: { Fabric: "100% cotton", Fit: "Regular", Care: "Machine wash cold, line dry" },
+    tags: ["basics"],
+    featured: true,
+    options: [
+      sizes,
+      [
+        { value: "White", color: "#f5f5f0", bg: "e8e8e0" },
+        { value: "Black", color: "#18161d", bg: "1a1a1a" },
+        { value: "Navy", color: "#1f2a44", bg: "1f2a44" },
+      ],
+    ],
+    // No XL in White — choosing it shows "This combination isn't available". Small Navy is sold out.
+    variant: ([size, colour]) =>
+      size === "XL" && colour === "White"
+        ? null
+        : { price: size === "XL" ? 36.95 : 34.95, stock: size === "S" && colour === "Navy" ? 0 : 20 },
+  });
+  await seedProduct({
+    slug: "relaxed-pocket-tee",
+    photo: "tall",
+    name: "Relaxed Pocket Tee",
+    type: "T-shirt",
+    categories: ["t-shirts"],
+    description: "A boxy, relaxed-fit tee in organic cotton with a chest pocket.",
+    specs: { Fabric: "Organic cotton", Fit: "Relaxed", Care: "Machine wash cold, line dry" },
+    tags: ["basics", "summer"],
+    options: [
+      sizes,
+      [
+        { value: "Sage", color: "#9caf88", bg: "9caf88" },
+        { value: "Sand", color: "#d8c7a8", bg: "d8c7a8" },
+      ],
+    ],
+    variant: () => ({ price: 39.95, salePrice: 29.95, stock: 15 }),
+  });
+
   for (const p of products) {
     await prisma.product.update({
       where: { id: ids[p.slug] },
       data: { completeTheLook: { set: (p.look ?? []).map((slug) => ({ id: ids[slug] })) } },
     });
   }
-  console.log(`✓ ${products.length} products ready (3 finishes each, per-finish photos, pairings)`);
+  console.log(`✓ ${Object.keys(ids).length} products ready (jewellery with finishes, 2 watches, 2 T-shirts)`);
+
+  // ── Collections ─────────────────────────────────────────────
+  await prisma.collection.upsert({
+    where: { slug: "gifts-under-50" },
+    update: {},
+    create: {
+      name: "Gifts under $50",
+      slug: "gifts-under-50",
+      description: "Easy gifts that look like you spent more.",
+      image: img("Gifts under $50", "ff2d6f", "1600x600"),
+      type: "AUTOMATIC",
+      rulePriceUnder: 50,
+    },
+  });
+  await prisma.collection.upsert({
+    where: { slug: "staff-picks" },
+    update: { products: { set: ["coastline-mesh-watch", "everyday-crew-tee", "nova-crystal-hoops"].map((s) => ({ id: ids[s] })) } },
+    create: {
+      name: "Staff picks",
+      slug: "staff-picks",
+      description: "What the Aussient team is wearing right now.",
+      type: "MANUAL",
+      products: { connect: ["coastline-mesh-watch", "everyday-crew-tee", "nova-crystal-hoops"].map((s) => ({ id: ids[s] })) },
+    },
+  });
+  // Automatic collections behind the home page rows and the /new-in and /sale pages.
+  // (No rules = every product; the sort sets the order.)
+  const autoCollections = [
+    { slug: "new-in", name: "New In", description: "The latest arrivals, added every week.", sort: "newest" },
+    { slug: "best-sellers", name: "Best Sellers", description: "What everyone's buying right now.", sort: "best-selling" },
+    { slug: "sale", name: "Sale", description: "Great prices on selected styles, while stock lasts.", sort: "newest", ruleOnSale: true },
+    { slug: "under-20", name: "Under $20", description: "Little treats that don't break the bank.", sort: "price-asc", rulePriceUnder: 20 },
+  ];
+  for (const c of autoCollections) {
+    await prisma.collection.upsert({ where: { slug: c.slug }, update: {}, create: { ...c, type: "AUTOMATIC" } });
+  }
+  console.log("✓ 6 collections ready (gifts-under-50, staff-picks, new-in, best-sellers, sale, under-20)");
 
   await seedStorefrontContent();
 }
@@ -208,6 +481,10 @@ async function seedStorefrontContent() {
       newsletterText:
         "Get 10% off your first order, early access to drops, and sale alerts before anyone else.",
       footerPerks: ["Free shipping over $50", "30-day easy returns", "Friendly support"],
+      tagline: SHOP_TEXT.tagline,
+      metaDescription: SHOP_TEXT.metaDescription,
+      deliveryInfo: SHOP_TEXT.deliveryInfo,
+      returnsInfo: SHOP_TEXT.returnsInfo,
       socials: {
         instagram: "https://instagram.com/aussient",
         tiktok: "https://tiktok.com/@aussient",
@@ -216,6 +493,32 @@ async function seedStorefrontContent() {
       },
     },
   });
+
+  // Fill in shop text added later (tagline, delivery, returns) without touching anything already set.
+  const current = await prisma.siteSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+  await prisma.siteSettings.update({
+    where: { id: "singleton" },
+    data: {
+      tagline: current.tagline ?? SHOP_TEXT.tagline,
+      metaDescription: current.metaDescription ?? SHOP_TEXT.metaDescription,
+      deliveryInfo: current.deliveryInfo ?? SHOP_TEXT.deliveryInfo,
+      returnsInfo: current.returnsInfo ?? SHOP_TEXT.returnsInfo,
+    },
+  });
+
+  // ── Upgrade the old jewellery-only sample content ───────────
+  // The header menu is now built from the category tree, and home rows/tiles
+  // from collections and categories. If the old sample content is still there
+  // (never edited — there's no admin editor for it yet), replace it.
+  if (await prisma.menuItem.findFirst({ where: { location: "header", url: "/collections/earrings" } })) {
+    await prisma.menuItem.deleteMany({ where: { location: "header" } });
+    console.log("  ↻ Replaced the old header menu (categories now fill it automatically)");
+  }
+  const oldSections = await prisma.homeSection.findMany({ where: { type: { in: ["product-row", "category-tiles"] } } });
+  if (oldSections.some((s) => s.config && typeof s.config === "object" && ("source" in s.config || "tiles" in s.config))) {
+    await prisma.homeSection.deleteMany({});
+    console.log("  ↻ Replaced the old home page sections");
+  }
 
   // ── Announcement bar ────────────────────────────────────────
   if ((await prisma.banner.count({ where: { placement: "announcement" } })) === 0) {
@@ -231,73 +534,16 @@ async function seedStorefrontContent() {
     });
   }
 
-  // ── Header menu (with mega-menu links + picture) ────────────
+  // ── Header menu ─────────────────────────────────────────────
+  // Top-level categories (and their sub-categories) fill the menu automatically;
+  // these are extra links shown after them.
   if ((await prisma.menuItem.count({ where: { location: "header" } })) === 0) {
-    const header = [
-      {
-        label: "Earrings",
-        url: "/collections/earrings",
-        bg: "ff2d6f",
-        links: [
-          ["Studs", "/collections/earrings?style=studs"],
-          ["Hoops", "/collections/earrings?style=hoops"],
-          ["Drops & Danglers", "/collections/earrings?style=drops"],
-          ["Huggies", "/collections/earrings?style=huggies"],
-          ["Threaders", "/collections/earrings?style=threaders"],
-        ],
-      },
-      {
-        label: "Necklaces",
-        url: "/collections/necklaces",
-        bg: "1a1a1a",
-        links: [
-          ["Pendants", "/collections/necklaces?style=pendants"],
-          ["Chains", "/collections/necklaces?style=chains"],
-          ["Chokers", "/collections/necklaces?style=chokers"],
-          ["Layered Sets", "/collections/necklaces?style=layered"],
-        ],
-      },
-      {
-        label: "Rings",
-        url: "/collections/rings",
-        bg: "c9a961",
-        links: [
-          ["Statement", "/collections/rings?style=statement"],
-          ["Stackable", "/collections/rings?style=stackable"],
-          ["Signet", "/collections/rings?style=signet"],
-          ["Adjustable", "/collections/rings?style=adjustable"],
-        ],
-      },
-      {
-        label: "Sale",
-        url: "/sale",
-        bg: "ff2d6f",
-        links: [
-          ["Up to 50% Off", "/sale"],
-          ["Last Chance", "/sale"],
-          ["Under $20", "/collections/all?price=under-20"],
-        ],
-      },
-    ];
-    for (const [order, item] of header.entries()) {
-      await prisma.menuItem.create({
-        data: {
-          label: item.label,
-          url: item.url,
-          location: "header",
-          order,
-          image: img(`Shop ${item.label}`, item.bg, "800x600"),
-          children: {
-            create: item.links.map(([label, url], i) => ({
-              label,
-              url,
-              location: "header",
-              order: i,
-            })),
-          },
-        },
-      });
-    }
+    await prisma.menuItem.createMany({
+      data: [
+        { label: "New In", url: "/new-in", location: "header", order: 0 },
+        { label: "Sale", url: "/sale", location: "header", order: 1 },
+      ],
+    });
   }
 
   // ── Footer menu (each top-level item is a column) ───────────
@@ -357,39 +603,17 @@ async function seedStorefrontContent() {
         type: "hero",
         config: {
           eyebrow: "New Season",
-          headline: "Shine loud. Spend little.",
-          subheading: "Trend-led fashion jewellery dropping every week — priced to stack.",
+          headline: "New season. New you.",
+          subheading: "Fashion, accessories and lifestyle pieces — new arrivals every week.",
           image: img("Aussient — New Season", "1a1a1a", "1920x1080"),
           button: { label: "Shop New In", href: "/new-in" },
           secondaryButton: { label: "Shop Sale", href: "/sale" },
         },
       },
-      {
-        type: "category-tiles",
-        title: "Shop by style",
-        config: {
-          tiles: [
-            { label: "Studs", href: "/collections/earrings?style=studs", image: img("Studs", "c9a961", "800x800") },
-            { label: "Hoops", href: "/collections/earrings?style=hoops", image: img("Hoops", "ff2d6f", "800x800") },
-            { label: "Drops", href: "/collections/earrings?style=drops", image: img("Drops", "1a1a1a", "800x800") },
-            {
-              label: "Huggies",
-              href: "/collections/earrings?style=huggies",
-              image: img("Huggies", "d9a7a0", "800x800"),
-            },
-            {
-              label: "Threaders",
-              href: "/collections/earrings?style=threaders",
-              image: img("Threaders", "b8b8c0", "800x800"),
-            },
-          ],
-        },
-      },
-      {
-        type: "product-row",
-        title: "New In",
-        config: { source: "new", limit: 10, viewAll: { label: "Shop all", href: "/new-in" } },
-      },
+      // Tiles come from the top-level categories (name + picture).
+      { type: "category-tiles", title: "Shop by category", config: {} },
+      // Product rows come from collections.
+      { type: "product-row", title: "New In", config: { collection: "new-in", limit: 10 } },
       {
         type: "promo-banner",
         config: {
@@ -411,7 +635,8 @@ async function seedStorefrontContent() {
           button: { label: "Shop the sale", href: "/sale" },
         },
       },
-      { type: "product-row", title: "Best Sellers", config: { source: "bestsellers", limit: 10 } },
+      { type: "product-row", title: "Best Sellers", config: { collection: "best-sellers", limit: 10 } },
+      { type: "product-row", title: "Staff picks", config: { collection: "staff-picks", limit: 10 } },
       {
         type: "countdown",
         endsAt: days(7),
@@ -421,60 +646,27 @@ async function seedStorefrontContent() {
           button: { label: "Shop the sale", href: "/sale" },
         },
       },
-      {
-        type: "product-row",
-        title: "Under $20",
-        config: {
-          source: "under",
-          maxPrice: 20,
-          limit: 10,
-          viewAll: { label: "Shop all", href: "/collections/all?price=under-20" },
-        },
-      },
+      { type: "product-row", title: "Under $20", config: { collection: "under-20", limit: 10 } },
       {
         type: "image-text",
         config: {
-          image: img("Made to stack", "c9a961", "1000x1250"),
-          heading: "Made to stack",
-          body: "Every piece is designed to mix, match and layer. Hypoallergenic posts, gold-plated finishes and prices that let you build the whole look.",
+          image: img("Made for every day", "c9a961", "1000x1250"),
+          heading: "Made for every day",
+          body: "Clothing, watches and accessories picked to mix, match and last — at prices that let you build the whole look.",
           button: { label: "Our story", href: "/about" },
           imageSide: "left",
         },
       },
-      {
-        type: "product-row",
-        title: "On Sale",
-        config: { source: "sale", limit: 10, viewAll: { label: "Shop sale", href: "/sale" } },
-      },
+      { type: "product-row", title: "On Sale", config: { collection: "sale", limit: 10 } },
       {
         type: "gift-guide",
         title: "Gift guide",
         config: {
           cards: [
-            {
-              title: "For her",
-              subtitle: "Pieces she'll wear every day",
-              href: "/collections/earrings",
-              image: img("For Her", "d9a7a0"),
-            },
-            {
-              title: "Under $20",
-              subtitle: "Little luxuries",
-              href: "/collections/all?price=under-20",
-              image: img("Under $20", "ff2d6f"),
-            },
-            {
-              title: "Gift sets",
-              subtitle: "Ready to give",
-              href: "/collections/necklaces",
-              image: img("Gift Sets", "1a1a1a"),
-            },
-            {
-              title: "Stocking fillers",
-              subtitle: "Small but mighty",
-              href: "/collections/all?price=under-20",
-              image: img("Stocking Fillers", "c9a961"),
-            },
+            { title: "Gifts under $50", subtitle: "Look like you spent more", href: "/collections/gifts-under-50", image: img("Under $50", "d9a7a0") },
+            { title: "Under $20", subtitle: "Little luxuries", href: "/collections/under-20", image: img("Under $20", "ff2d6f") },
+            { title: "Watches", subtitle: "A gift that lasts", href: "/collections/watches", image: img("Watches", "3a4a5a") },
+            { title: "Staff picks", subtitle: "What we're wearing", href: "/collections/staff-picks", image: img("Staff Picks", "c9a961") },
           ],
         },
       },
@@ -586,10 +778,10 @@ async function seedStorefrontContent() {
     const admin = await prisma.user.findUniqueOrThrow({ where: { email: process.env.ADMIN_EMAIL! } });
     const product = await prisma.product.findUniqueOrThrow({
       where: { slug: "nova-crystal-hoops" },
-      include: { variants: { where: { name: "Silver" } } },
+      include: { variants: { where: { option1: { value: "Silver" } } } },
     });
     const variant = product.variants[0];
-    const unitPrice = Number(variant?.price ?? product.salePrice ?? product.price);
+    const unitPrice = Number(variant.salePrice ?? variant.price);
     const shipping = 7.95;
     await prisma.order.create({
       data: {
@@ -614,7 +806,7 @@ async function seedStorefrontContent() {
             productId: product.id,
             variantId: variant?.id,
             name: product.name,
-            variantName: variant?.name,
+            variantName: "Silver",
             unitPrice,
             quantity: 1,
             lineTotal: unitPrice,

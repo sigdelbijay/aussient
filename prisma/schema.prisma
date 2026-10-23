@@ -47,6 +47,11 @@ enum AuthTokenType {
   PASSWORD_RESET
 }
 
+enum CollectionType {
+  MANUAL // hand-picked products
+  AUTOMATIC // products matching the rules
+}
+
 enum OrderStatus {
   PAID
   SHIPPED
@@ -86,32 +91,86 @@ model User {
   cart         Cart?
 }
 
-/// Top-level product groupings (e.g. Earrings) with a sort order and image.
+// ── Catalogue ────────────────────────────────────────────────
+// Category tree → ProductType → Product → ProductVariant.
+// Nothing here is earring-specific: a product type says which options
+// shoppers pick (e.g. Size, Colour) and which spec fields a product has.
+
+/// Product groupings shoppers browse, nested up to 3 levels (e.g. Women > Clothing > Dresses).
 model Category {
-  id        String     @id @default(cuid())
-  name      String
-  slug      String     @unique
-  image     String?
-  order     Int        @default(0)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  products  Product[]
-  discounts Discount[] // category-scoped discounts
+  id                String       @id @default(cuid())
+  name              String
+  slug              String       @unique
+  image             String?
+  order             Int          @default(0) // order among categories with the same parent
+  parentId          String? // null = top level
+  parent            Category?    @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children          Category[]   @relation("CategoryTree")
+  products          Product[] // a product can be in several categories
+  discounts         Discount[] // category-scoped discounts
+  collectionsByRule Collection[] // automatic collections that use this category
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([parentId])
 }
 
-/// A sellable item: pricing, stock, status (draft/live) and its category.
+/// A kind of product (e.g. "Earrings", "Watch", "T-shirt"): which options shoppers pick and which specs it has.
+model ProductType {
+  id                String       @id @default(cuid())
+  name              String       @unique
+  /// Up to 3 options shoppers pick from, in order, e.g. ["Size", "Colour"]. Empty = nothing to pick.
+  optionNames       String[]     @default([])
+  /// Spec fields, e.g. [{ "label": "Case size", "kind": "number", "unit": "mm", "filterable": true }].
+  /// kind: "text" | "number" | "yes-no" | "pick" (pick-from-list, uses "choices"). See src/lib/product-types.ts.
+  specFields        Json         @default("[]")
+  sizeGuideId       String?
+  sizeGuide         SizeGuide?   @relation(fields: [sizeGuideId], references: [id], onDelete: SetNull)
+  products          Product[]
+  collectionsByRule Collection[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+/// A brand products can belong to (e.g. "Casio"), with its logo.
+model Brand {
+  id                String       @id @default(cuid())
+  name              String       @unique
+  slug              String       @unique
+  logo              String?
+  description       String? // shown at the top of /brands/[slug]
+  products          Product[]
+  collectionsByRule Collection[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+/// A size chart shown on product pages, e.g. "T-shirt sizes".
+model SizeGuide {
+  id           String        @id @default(cuid())
+  name         String
+  /// { "columns": ["Size", "Chest", "Length"], "rows": [["S", "92", "70"], ...] }
+  table        Json
+  notes        String? // e.g. "AU sizes, measurements in cm"
+  productTypes ProductType[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+/// A sellable item. Prices and stock live on its variants (always at least one).
 model Product {
   id              String               @id @default(cuid())
   name            String
   slug            String               @unique
   description     String?
-  price           Decimal              @db.Decimal(10, 2)
-  salePrice       Decimal?             @db.Decimal(10, 2)
-  stock           Int                  @default(0) // used when the product has no variants
-  material        String? // e.g. "Sterling silver" — a shop filter
-  style           String? // lowercase, e.g. "hoops", "studs" — a shop filter
-  hypoallergenic  Boolean              @default(false)
-  details         String? // "Details" tab: size, weight, closure…
+  productTypeId   String
+  productType     ProductType          @relation(fields: [productTypeId], references: [id], onDelete: Restrict)
+  brandId         String?
+  brand           Brand?               @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  /// Spec values keyed by the product type's spec labels, e.g. { "Material": "Sterling silver", "Hypoallergenic": true }.
+  specs           Json                 @default("{}")
+  tags            String[]             @default([]) // free-form words for search and collections, e.g. ["gift", "summer"]
+  details         String? // "Details" tab: one fact per line
   care            String? // "Care" tab
   seoTitle        String? // overrides the page title in Google
   seoDescription  String? // overrides the description in Google
@@ -120,10 +179,11 @@ model Product {
   // Hand-picked "Complete the look" pairings (one-way: A suggests B).
   completeTheLook Product[]            @relation("CompleteTheLook")
   suggestedIn     Product[]            @relation("CompleteTheLook")
-  categoryId      String
-  category        Category             @relation(fields: [categoryId], references: [id])
-  media           ProductMedia[]
+  categories      Category[]
+  collections     Collection[]         @relation("CollectionProducts") // manual collections it's been added to
+  optionValues    ProductOptionValue[]
   variants        ProductVariant[]
+  media           ProductMedia[]
   reviews         Review[]
   wishlist        Wishlist[]
   backInStock     BackInStockRequest[]
@@ -133,42 +193,97 @@ model Product {
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
-  @@index([categoryId])
+  @@index([productTypeId])
   @@index([status, createdAt])
+}
+
+/// One choice for one option on a product, e.g. Colour "Navy" (with its swatch).
+model ProductOptionValue {
+  id          String           @id @default(cuid())
+  productId   String
+  product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  option      String // one of the product type's optionNames, e.g. "Colour"
+  value       String // e.g. "Navy"
+  swatchColor String? // hex, e.g. "#1f2a44"
+  swatchImage String? // small picture instead of a colour (e.g. a fabric print)
+  order       Int              @default(0)
+  // Variants that use this value as their 1st, 2nd or 3rd option.
+  variants1   ProductVariant[] @relation("VariantOption1")
+  variants2   ProductVariant[] @relation("VariantOption2")
+  variants3   ProductVariant[] @relation("VariantOption3")
+  media       ProductMedia[] // photos shown when this value is chosen
+
+  @@unique([productId, option, value])
+  @@index([productId])
+}
+
+/// One buyable combination (e.g. Size M + Colour Navy) with its own SKU, price and stock.
+/// A product with no options has a single variant with no option values.
+model ProductVariant {
+  id          String              @id @default(cuid())
+  productId   String
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // option1 matches the product type's 1st option name, option2 the 2nd, option3 the 3rd.
+  option1Id   String?
+  option1     ProductOptionValue? @relation("VariantOption1", fields: [option1Id], references: [id], onDelete: Cascade)
+  option2Id   String?
+  option2     ProductOptionValue? @relation("VariantOption2", fields: [option2Id], references: [id], onDelete: Cascade)
+  option3Id   String?
+  option3     ProductOptionValue? @relation("VariantOption3", fields: [option3Id], references: [id], onDelete: Cascade)
+  sku         String?             @unique
+  price       Decimal             @db.Decimal(10, 2) // AUD incl. GST
+  salePrice   Decimal?            @db.Decimal(10, 2)
+  stock       Int                 @default(0)
+  weightGrams Int? // for shipping
+  barcode     String? // e.g. EAN/UPC
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([productId])
 }
 
 /// Images/videos for a product (Cloudinary URL), with alt text and sort order.
 model ProductMedia {
-  id        String          @id @default(cuid())
-  productId String
-  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variantId String? // set = photo of that finish (shown when it's selected)
-  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  url       String
-  type      MediaType       @default(IMAGE)
-  alt       String?
-  order     Int             @default(0)
+  id            String              @id @default(cuid())
+  productId     String
+  product       Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  optionValueId String? // set = photo of that option value (e.g. "Navy"), shown when it's chosen
+  optionValue   ProductOptionValue? @relation(fields: [optionValueId], references: [id], onDelete: SetNull)
+  url           String
+  type          MediaType           @default(IMAGE)
+  alt           String?
+  order         Int                 @default(0)
 
   @@index([productId])
 }
 
-/// A finish/colour option of a product (e.g. Gold) with its own SKU, price and stock.
-model ProductVariant {
-  id         String         @id @default(cuid())
-  productId  String
-  product    Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  name       String // finish / colour, e.g. "Gold"
-  sku        String?        @unique
-  price      Decimal?       @db.Decimal(10, 2)
-  salePrice  Decimal?       @db.Decimal(10, 2)
-  stock      Int            @default(0)
-  media      ProductMedia[]
-  orderItems OrderItem[]
-  cartItems  CartItem[]
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-
-  @@index([productId])
+/// A group of products for banners and home rows: hand-picked (MANUAL) or by rules (AUTOMATIC).
+/// Automatic rules that are set must all match (e.g. brand = Casio AND on sale).
+model Collection {
+  id                String         @id @default(cuid())
+  name              String
+  slug              String         @unique
+  image             String?
+  description       String?
+  type              CollectionType @default(MANUAL)
+  /// Default order on its page and in home rows: newest | best-selling | price-asc | price-desc
+  sort              String         @default("newest")
+  products          Product[]      @relation("CollectionProducts") // MANUAL: the chosen products
+  // AUTOMATIC rules (leave blank to ignore):
+  ruleCategoryId    String? // in this category (or one inside it)
+  ruleCategory      Category?      @relation(fields: [ruleCategoryId], references: [id], onDelete: SetNull)
+  ruleProductTypeId String?
+  ruleProductType   ProductType?   @relation(fields: [ruleProductTypeId], references: [id], onDelete: SetNull)
+  ruleBrandId       String?
+  ruleBrand         Brand?         @relation(fields: [ruleBrandId], references: [id], onDelete: SetNull)
+  ruleTag           String?
+  ruleOnSale        Boolean        @default(false)
+  rulePriceUnder    Decimal?       @db.Decimal(10, 2) // price shoppers pay is below this
+  rulePriceOver     Decimal?       @db.Decimal(10, 2) // …or above this
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 }
 
 /// Promotions: coded or automatic, with type, scope, limits and a usage counter.
@@ -415,6 +530,11 @@ model SiteSettings {
   newsletterHeading     String?
   newsletterText        String?
   footerPerks           Json? // ["Free shipping over $50", ...]
+  tagline               String? // e.g. "Fashion, accessories & lifestyle" — page titles and share image
+  metaDescription       String? // the site's default description in Google
+  deliveryInfo          String? // "Delivery" section on product pages, one fact per line
+  returnsInfo           String? // "Returns" section on product pages, one fact per line
+  lowStockAlert         Int      @default(5) // admin warns when a variant has this many or fewer left
   updatedAt             DateTime @updatedAt
 }
 

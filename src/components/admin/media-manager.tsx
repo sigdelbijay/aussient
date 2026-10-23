@@ -9,28 +9,29 @@ import { addMediaAction, deleteMediaAction, reorderMediaAction, updateMediaActio
 import { inputClass } from "./ui";
 import { UploadButton, type CloudinaryPublic } from "./upload-button";
 
-type Media = { id: string; url: string; type: "IMAGE" | "VIDEO"; alt: string | null; variantId: string | null };
+type Media = { id: string; url: string; type: "IMAGE" | "VIDEO"; alt: string | null; optionValueId: string | null };
 
 /**
  * Product photos & videos: drag (or use the arrows) to reorder, add alt text,
- * pick which finish a photo shows, delete, and upload more.
+ * pick which option value a photo shows (e.g. the Navy photos), delete, and upload more.
  * The first photo is the main one on product cards; the second shows on hover.
  */
 export function MediaManager({
   productId,
   media: initial,
-  variants,
+  optionValues,
   cloudinary,
 }: {
   productId: string;
   media: Media[];
-  variants: { id: string; name: string }[];
+  /** e.g. { id, label: "Colour: Navy" } */
+  optionValues: { id: string; label: string }[];
   cloudinary: CloudinaryPublic;
 }) {
   const router = useRouter();
   const [media, setMedia] = useState(initial);
   const [dragging, setDragging] = useState<string | null>(null);
-  const [target, setTarget] = useState<string>(""); // finish new uploads belong to
+  const [target, setTarget] = useState<string>(""); // option value new uploads belong to
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -56,19 +57,19 @@ export function MediaManager({
     save(() => reorderMediaAction(productId, next.map((m) => m.id)));
   }
 
-  const finishName = (id: string | null) => variants.find((v) => v.id === id)?.name;
+  const valueName = (id: string | null) => optionValues.find((v) => v.id === id)?.label;
 
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end gap-3">
-        {variants.length > 0 && (
+        {optionValues.length > 0 && (
           <label className="grid gap-1 text-xs font-medium">
             Upload as
-            <select value={target} onChange={(e) => setTarget(e.target.value)} className={cn(inputClass, "h-9 w-44")}>
-              <option value="">All finishes</option>
-              {variants.map((v) => (
+            <select value={target} onChange={(e) => setTarget(e.target.value)} className={cn(inputClass, "h-9 w-52")}>
+              <option value="">General photos</option>
+              {optionValues.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.name} photos
+                  {v.label} photos
                 </option>
               ))}
             </select>
@@ -125,9 +126,9 @@ export function MediaManager({
                   {i === 0 ? "Main" : i === 1 ? "Hover" : `#${i + 1}`}
                   {m.type === "VIDEO" && " · Video"}
                 </span>
-                {m.variantId && (
+                {m.optionValueId && (
                   <span className="absolute right-1.5 top-1.5 rounded bg-brand-ink px-1.5 py-0.5 text-[0.65rem] font-semibold text-brand-paper">
-                    {finishName(m.variantId)}
+                    {valueName(m.optionValueId)}
                   </span>
                 )}
               </div>
@@ -144,17 +145,17 @@ export function MediaManager({
                 className={cn(inputClass, "h-8 text-xs")}
               />
 
-              {variants.length > 0 && (
+              {optionValues.length > 0 && (
                 <select
-                  defaultValue={m.variantId ?? ""}
-                  aria-label="Shown for finish"
-                  onChange={(e) => save(() => updateMediaAction(m.id, { variantId: e.target.value || null }))}
+                  defaultValue={m.optionValueId ?? ""}
+                  aria-label="Shown for option value"
+                  onChange={(e) => save(() => updateMediaAction(m.id, { optionValueId: e.target.value || null }))}
                   className={cn(inputClass, "h-8 text-xs")}
                 >
-                  <option value="">All finishes</option>
-                  {variants.map((v) => (
+                  <option value="">General (always shown)</option>
+                  {optionValues.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name} only
+                      {v.label} only
                     </option>
                   ))}
                 </select>

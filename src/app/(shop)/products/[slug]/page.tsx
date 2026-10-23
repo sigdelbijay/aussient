@@ -1,4 +1,4 @@
-import { cache } from "react";
+import { cache, Fragment } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -24,14 +24,14 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const product = await loadProduct((await params).slug);
   if (!product) return {};
-  const pay = product.salePrice ?? product.price;
-  const photo = product.media.find((m) => m.type === "IMAGE" && !m.variantId) ?? product.media[0];
+  const pay = product.fromPrice;
+  const photo = product.media.find((m) => m.type === "IMAGE" && !m.optionValueId) ?? product.media[0];
   return {
     ...pageMetadata({
       title: product.seoTitle || product.name,
       description: snippet(
         product.seoDescription ||
-          `${product.description ?? product.name} ${formatPrice(pay)} with free shipping over $50 and 30-day returns.`,
+          `${product.description ?? product.name} ${product.variants.length > 1 ? "From " : ""}${formatPrice(pay)}.`,
       ),
       path: `/products/${product.slug}`,
       image: photo?.type === "IMAGE" ? { url: photo.url, alt: photo.alt } : null,
@@ -51,7 +51,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
   const look = product.completeTheLook;
   const [related, chrome] = await Promise.all([
     getRelatedProducts(
-      { id: product.id, categoryId: product.categoryId, style: product.style },
+      { id: product.id, categoryIds: product.categoryIds, productTypeId: product.productTypeId },
       look.map((p) => p.id),
     ),
     getSiteChrome(),
@@ -70,12 +70,16 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
                 Home
               </Link>
             </li>
-            <li aria-hidden>/</li>
-            <li>
-              <Link href={`/collections/${product.category.slug}`} className="hover:text-foreground">
-                {product.category.name}
-              </Link>
-            </li>
+            {product.breadcrumb.map((c) => (
+              <Fragment key={c.slug}>
+                <li aria-hidden>/</li>
+                <li>
+                  <Link href={`/collections/${c.slug}`} className="hover:text-foreground">
+                    {c.name}
+                  </Link>
+                </li>
+              </Fragment>
+            ))}
             <li aria-hidden>/</li>
             <li aria-current="page" className="text-foreground">
               {product.name}
@@ -83,17 +87,24 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
           </ol>
         </nav>
 
-        <ProductView product={product}>
-          <InfoSection title="Description" open>
-            {product.description && <p>{product.description}</p>}
-            <ul className="mt-3 grid gap-1">
-              {product.material && <li>Material: {product.material}</li>}
-              {product.hypoallergenic && <li>Hypoallergenic — kind to sensitive skin</li>}
-            </ul>
-          </InfoSection>
-          {product.details && <InfoSection title="Details">{lines(product.details)}</InfoSection>}
+        <ProductView
+          product={product}
+          sizeGuide={product.sizeGuide ? <SizeGuideTable guide={product.sizeGuide} /> : undefined}
+        >
+          {(product.description || product.details) && (
+            <InfoSection title="Description" open>
+              {product.description && <p>{product.description}</p>}
+              {product.details && <div className="mt-3">{lines(product.details)}</div>}
+            </InfoSection>
+          )}
+          {(product.brand || product.specs.length > 0) && (
+            <InfoSection title="Specifications" open>
+              <SpecTable product={product} />
+            </InfoSection>
+          )}
           {product.care && <InfoSection title="Care">{lines(product.care)}</InfoSection>}
-          <InfoSection title="Shipping & returns">{shippingText(chrome.settings)}</InfoSection>
+          <InfoSection title="Delivery">{deliveryText(chrome.settings)}</InfoSection>
+          {chrome.settings.returnsInfo && <InfoSection title="Returns">{lines(chrome.settings.returnsInfo)}</InfoSection>}
         </ProductView>
 
         <ProductReviews product={product} />
@@ -110,14 +121,16 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
 function InfoSection({
   title,
   open,
+  id,
   children,
 }: {
   title: string;
   open?: boolean;
+  id?: string;
   children: React.ReactNode;
 }) {
   return (
-    <details open={open} className="group/info">
+    <details open={open} id={id} className="group/info scroll-mt-24">
       <summary className="flex cursor-pointer list-none items-center justify-between py-4 font-heading text-sm font-bold uppercase tracking-wide [&::-webkit-details-marker]:hidden">
         {title}
         <ChevronDown className="size-4 transition-transform duration-200 group-open/info:rotate-180" />
@@ -140,20 +153,80 @@ function lines(text: string) {
   );
 }
 
-function shippingText(settings: SiteChrome["settings"]) {
+function SizeGuideTable({ guide }: { guide: NonNullable<ProductDetail["sizeGuide"]> }) {
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-max text-left text-xs [&_td]:border-t [&_td]:border-border [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5 [&_th]:font-semibold [&_th]:text-foreground">
+          <thead>
+            <tr>
+              {guide.columns.map((c) => (
+                <th key={c}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {guide.rows.map((row, i) => (
+              <tr key={i}>
+                {row.map((cell, j) => (
+                  <td key={j}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {guide.notes && <p className="mt-2 text-xs">{guide.notes}</p>}
+    </>
+  );
+}
+
+/** Delivery: the shop's own delivery text, plus its current shipping prices. */
+function deliveryText(settings: SiteChrome["settings"]) {
   const { freeShippingThreshold: free, flatShippingRate: flat } = settings;
   return (
-    <ul className="grid gap-1">
-      {free !== null && <li>Free standard shipping on orders over {formatPrice(free)}.</li>}
-      {flat !== null && <li>Flat-rate shipping of {formatPrice(flat)} Australia-wide otherwise.</li>}
-      <li>
-        Changed your mind? Return unworn items within 30 days —{" "}
-        <Link href="/help/returns" className="underline">
-          see our returns policy
-        </Link>
-        .
-      </li>
-    </ul>
+    <div className="grid gap-2">
+      {(free !== null || flat !== null) && (
+        <ul className="grid gap-1">
+          {free !== null && <li>Free standard shipping on orders over {formatPrice(free)}.</li>}
+          {flat !== null && <li>Flat-rate shipping of {formatPrice(flat)} otherwise.</li>}
+        </ul>
+      )}
+      {settings.deliveryInfo && lines(settings.deliveryInfo)}
+    </div>
+  );
+}
+
+/** Amazon-style two-column table: brand, then every spec the product has. */
+function SpecTable({ product }: { product: ProductDetail }) {
+  const rows: { label: string; value: React.ReactNode }[] = [
+    ...(product.brand
+      ? [
+          {
+            label: "Brand",
+            value: (
+              <Link href={`/brands/${product.brand.slug}`} className="underline underline-offset-2 hover:text-brand-accent">
+                {product.brand.name}
+              </Link>
+            ),
+          },
+        ]
+      : []),
+    ...product.specs,
+  ];
+  return (
+    <table className="w-full text-left text-sm">
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.label} className="border-b border-border last:border-0 odd:bg-muted/60">
+            <th scope="row" className="w-2/5 px-3 py-2 align-top font-semibold text-foreground">
+              {row.label}
+            </th>
+            <td className="px-3 py-2">{row.value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -215,18 +288,27 @@ function offer(
   };
 }
 
+/** schema.org names for options Google understands (others are just part of the variant name). */
+const VARIES_BY: Record<string, string> = {
+  colour: "https://schema.org/color",
+  color: "https://schema.org/color",
+  size: "https://schema.org/size",
+  material: "https://schema.org/material",
+  pattern: "https://schema.org/pattern",
+};
+
 /**
- * schema.org Product (or ProductGroup when it comes in several finishes) so
+ * schema.org Product (or ProductGroup when it has several variants) so
  * Google can show price, stock and star ratings in search results.
  */
 function productJsonLd(product: ProductDetail, settings: SiteChrome["settings"]) {
   const url = absoluteUrl(`/products/${product.slug}`);
-  // A finish's own photos first, then the general ones.
-  const images = (variantId: string | null) => {
+  // A variant's own photos (of its option values) first, then the general ones.
+  const images = (optionIds: (string | null)[]) => {
     const photos = product.media.filter((m) => m.type === "IMAGE");
     return [
-      ...(variantId ? photos.filter((m) => m.variantId === variantId) : []),
-      ...photos.filter((m) => !m.variantId),
+      ...photos.filter((m) => m.optionValueId && optionIds.includes(m.optionValueId)),
+      ...photos.filter((m) => !m.optionValueId),
     ].map((m) => m.url);
   };
 
@@ -235,9 +317,9 @@ function productJsonLd(product: ProductDetail, settings: SiteChrome["settings"])
     name: product.name,
     description: product.description ?? undefined,
     url,
-    brand: { "@type": "Brand", name: SITE_NAME },
-    category: product.category.name,
-    material: product.material ?? undefined,
+    brand: { "@type": "Brand", name: product.brand?.name ?? SITE_NAME },
+    category: product.breadcrumb.at(-1)?.name ?? product.productType,
+    additionalProperty: product.specs.map((s) => ({ "@type": "PropertyValue", name: s.label, value: s.value })),
     ...(product.rating.count > 0 && {
       aggregateRating: {
         "@type": "AggregateRating",
@@ -257,28 +339,37 @@ function productJsonLd(product: ProductDetail, settings: SiteChrome["settings"])
     }),
   };
 
-  if (product.variants.length === 0) {
+  if (product.variants.length === 1) {
+    const v = product.variants[0];
     return {
       ...shared,
       "@type": "Product",
-      sku: product.id,
-      image: images(null),
-      offers: offer(url, product.price, product.salePrice, product.stock, settings),
+      sku: v.sku ?? v.id,
+      image: images(v.optionIds),
+      offers: offer(url, v.price, v.salePrice, v.stock, settings),
     };
   }
 
+  const valueOf = (v: ProductDetail["variants"][number], slot: number) =>
+    product.options.find((o) => o.slot === slot)?.values.find((x) => x.id === v.optionIds[slot])?.value;
   return {
     ...shared,
     "@type": "ProductGroup",
     productGroupID: product.id,
-    variesBy: "https://schema.org/color",
+    variesBy: product.options.map((o) => VARIES_BY[o.name.toLowerCase()]).filter(Boolean),
     hasVariant: product.variants.map((v) => ({
       "@type": "Product",
       sku: v.sku ?? v.id,
-      name: `${product.name} — ${v.name}`,
-      color: v.name,
-      image: images(v.id),
-      offers: offer(url, v.price, v.salePrice, v.stock, settings),
+      name: v.label ? `${product.name} — ${v.label}` : product.name,
+      // e.g. color: "Navy", size: "M" for the options Google understands.
+      ...Object.fromEntries(
+        product.options
+          .filter((o) => VARIES_BY[o.name.toLowerCase()])
+          .map((o) => [VARIES_BY[o.name.toLowerCase()].split("/").pop()!, valueOf(v, o.slot)]),
+      ),
+      image: images(v.optionIds),
+      // Each variant has its own link (?variant=…), which opens the page on it.
+      offers: offer(`${url}?variant=${v.id}`, v.price, v.salePrice, v.stock, settings),
     })),
   };
 }
@@ -286,7 +377,7 @@ function productJsonLd(product: ProductDetail, settings: SiteChrome["settings"])
 function breadcrumbJsonLd(product: ProductDetail) {
   const crumbs = [
     { name: "Home", path: "/" },
-    { name: product.category.name, path: `/collections/${product.category.slug}` },
+    ...product.breadcrumb.map((c) => ({ name: c.name, path: `/collections/${c.slug}` })),
     { name: product.name, path: `/products/${product.slug}` },
   ];
   return {
