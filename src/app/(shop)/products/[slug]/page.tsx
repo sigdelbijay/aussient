@@ -87,34 +87,24 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
           </ol>
         </nav>
 
-        <ProductView product={product}>
-          <InfoSection title="Description" open>
-            {product.description && <p>{product.description}</p>}
-            {(product.brand || product.specs.length > 0) && (
-              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-                {product.brand && (
-                  <>
-                    <dt className="font-medium text-foreground">Brand</dt>
-                    <dd>{product.brand.name}</dd>
-                  </>
-                )}
-                {product.specs.map((spec) => (
-                  <Fragment key={spec.label}>
-                    <dt className="font-medium text-foreground">{spec.label}</dt>
-                    <dd>{spec.value}</dd>
-                  </Fragment>
-                ))}
-              </dl>
-            )}
-          </InfoSection>
-          {product.details && <InfoSection title="Details">{lines(product.details)}</InfoSection>}
-          {product.care && <InfoSection title="Care">{lines(product.care)}</InfoSection>}
-          {product.sizeGuide && (
-            <InfoSection title="Size guide" id="size-guide">
-              <SizeGuideTable guide={product.sizeGuide} />
+        <ProductView
+          product={product}
+          sizeGuide={product.sizeGuide ? <SizeGuideTable guide={product.sizeGuide} /> : undefined}
+        >
+          {(product.description || product.details) && (
+            <InfoSection title="Description" open>
+              {product.description && <p>{product.description}</p>}
+              {product.details && <div className="mt-3">{lines(product.details)}</div>}
             </InfoSection>
           )}
-          <InfoSection title="Shipping & returns">{shippingText(chrome.settings)}</InfoSection>
+          {(product.brand || product.specs.length > 0) && (
+            <InfoSection title="Specifications" open>
+              <SpecTable product={product} />
+            </InfoSection>
+          )}
+          {product.care && <InfoSection title="Care">{lines(product.care)}</InfoSection>}
+          <InfoSection title="Delivery">{deliveryText(chrome.settings)}</InfoSection>
+          {chrome.settings.returnsInfo && <InfoSection title="Returns">{lines(chrome.settings.returnsInfo)}</InfoSection>}
         </ProductView>
 
         <ProductReviews product={product} />
@@ -191,20 +181,52 @@ function SizeGuideTable({ guide }: { guide: NonNullable<ProductDetail["sizeGuide
   );
 }
 
-function shippingText(settings: SiteChrome["settings"]) {
+/** Delivery: the shop's own delivery text, plus its current shipping prices. */
+function deliveryText(settings: SiteChrome["settings"]) {
   const { freeShippingThreshold: free, flatShippingRate: flat } = settings;
   return (
-    <ul className="grid gap-1">
-      {free !== null && <li>Free standard shipping on orders over {formatPrice(free)}.</li>}
-      {flat !== null && <li>Flat-rate shipping of {formatPrice(flat)} Australia-wide otherwise.</li>}
-      <li>
-        Changed your mind? Return unworn items within 30 days —{" "}
-        <Link href="/help/returns" className="underline">
-          see our returns policy
-        </Link>
-        .
-      </li>
-    </ul>
+    <div className="grid gap-2">
+      {(free !== null || flat !== null) && (
+        <ul className="grid gap-1">
+          {free !== null && <li>Free standard shipping on orders over {formatPrice(free)}.</li>}
+          {flat !== null && <li>Flat-rate shipping of {formatPrice(flat)} otherwise.</li>}
+        </ul>
+      )}
+      {settings.deliveryInfo && lines(settings.deliveryInfo)}
+    </div>
+  );
+}
+
+/** Amazon-style two-column table: brand, then every spec the product has. */
+function SpecTable({ product }: { product: ProductDetail }) {
+  const rows: { label: string; value: React.ReactNode }[] = [
+    ...(product.brand
+      ? [
+          {
+            label: "Brand",
+            value: (
+              <Link href={`/brands/${product.brand.slug}`} className="underline underline-offset-2 hover:text-brand-accent">
+                {product.brand.name}
+              </Link>
+            ),
+          },
+        ]
+      : []),
+    ...product.specs,
+  ];
+  return (
+    <table className="w-full text-left text-sm">
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.label} className="border-b border-border last:border-0 odd:bg-muted/60">
+            <th scope="row" className="w-2/5 px-3 py-2 align-top font-semibold text-foreground">
+              {row.label}
+            </th>
+            <td className="px-3 py-2">{row.value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -346,7 +368,8 @@ function productJsonLd(product: ProductDetail, settings: SiteChrome["settings"])
           .map((o) => [VARIES_BY[o.name.toLowerCase()].split("/").pop()!, valueOf(v, o.slot)]),
       ),
       image: images(v.optionIds),
-      offers: offer(url, v.price, v.salePrice, v.stock, settings),
+      // Each variant has its own link (?variant=…), which opens the page on it.
+      offers: offer(`${url}?variant=${v.id}`, v.price, v.salePrice, v.stock, settings),
     })),
   };
 }

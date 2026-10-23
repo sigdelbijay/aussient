@@ -9,9 +9,6 @@ import { z } from "zod";
 const link = z.object({ label: z.string().min(1), href: z.string().min(1) });
 const image = z.string().min(1); // Cloudinary (or other allowed) image URL
 
-export const productSources = ["new", "bestsellers", "sale", "featured", "under"] as const;
-export type ProductSource = (typeof productSources)[number];
-
 export const sectionSchemas = {
   hero: z.object({
     headline: z.string().min(1),
@@ -22,14 +19,15 @@ export const sectionSchemas = {
     button: link,
     secondaryButton: link.optional(),
   }),
+  // Products come from a collection (its own rules and sort order), e.g. "new-in", "best-sellers".
   "product-row": z.object({
-    source: z.enum(productSources),
-    maxPrice: z.number().positive().optional(), // for source "under", e.g. 20
+    collection: z.string().min(1), // the collection's web address (slug)
     limit: z.number().int().min(1).max(24).default(12),
-    viewAll: link.optional(),
+    viewAll: link.optional(), // defaults to the collection's page
   }),
+  // Tiles for the top-level categories, with each category's picture.
   "category-tiles": z.object({
-    tiles: z.array(z.object({ label: z.string().min(1), image, href: z.string().min(1) })).min(1),
+    limit: z.number().int().min(1).max(12).optional(),
   }),
   "promo-banner": z.object({
     image,

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Archivo, Inter } from "next/font/google";
 import "./globals.css";
-import { SITE_NAME, siteUrl } from "@/lib/seo";
+import { siteUrl } from "@/lib/seo";
+import { getSiteChrome } from "@/lib/storefront";
 
 // Bold display face for headings…
 const heading = Archivo({
@@ -16,26 +17,20 @@ const body = Inter({
   subsets: ["latin"],
 });
 
-const description =
-  "Bold, on-trend fashion jewellery. New drops weekly. Shop earrings, necklaces, rings and more.";
-
-export const metadata: Metadata = {
-  // Lets pages use relative URLs for canonical links and share images.
-  metadataBase: siteUrl,
-  title: {
-    default: "Aussient — Fashion Jewellery",
-    template: "%s · Aussient",
-  },
-  description,
-  openGraph: {
-    title: "Aussient — Fashion Jewellery",
+/** Site-wide title and description, from Site settings (store name, tagline, meta description). */
+export async function generateMetadata(): Promise<Metadata> {
+  const { storeName, tagline, metaDescription } = (await getSiteChrome()).settings;
+  const title = tagline ? `${storeName} — ${tagline}` : storeName;
+  const description = metaDescription ?? tagline ?? undefined;
+  return {
+    // Lets pages use relative URLs for canonical links and share images.
+    metadataBase: siteUrl,
+    title: { default: title, template: `%s · ${storeName}` },
     description,
-    siteName: SITE_NAME,
-    locale: "en_AU",
-    type: "website",
-  },
-  twitter: { card: "summary_large_image" },
-};
+    openGraph: { title, description, siteName: storeName, locale: "en_AU", type: "website" },
+    twitter: { card: "summary_large_image" },
+  };
+}
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   // The shop's header/footer live in (shop)/layout.tsx; the admin has its own in admin/layout.tsx.

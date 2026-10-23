@@ -10,7 +10,7 @@ export async function generateMetadata({ searchParams }: PageProps<"/search">): 
   const q = String((await searchParams).q ?? "").trim();
   return pageMetadata({
     title: q ? `Search: ${q}` : "Search",
-    description: "Search Aussient for earrings, necklaces, rings and more.",
+    description: "Search products, brands and categories.",
     path: "/search",
     // Search results pages shouldn't appear in Google.
     noindex: true,
@@ -23,7 +23,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
 
   const searchForm = (
     <Form action="/search" className="mt-4 flex max-w-lg gap-2" role="search">
-      <Input type="search" name="q" defaultValue={q} placeholder="Search for earrings, necklaces, rings…" aria-label="Search products" className="h-11" />
+      <Input type="search" name="q" defaultValue={q} placeholder="Search products, brands…" aria-label="Search products" className="h-11" />
       <button type="submit" aria-label="Search" className="grid size-11 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
         <Search className="size-5" />
       </button>

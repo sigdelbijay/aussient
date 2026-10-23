@@ -4,7 +4,7 @@ import { useState } from "react";
 import Form from "next/form";
 import { SlidersHorizontal } from "lucide-react";
 import { cn } from "cn";
-import { PRICE_BUCKETS, SORTS, type Filters } from "@/lib/catalog-shared";
+import { priceLabel, priceParam, SORTS, type Filters } from "@/lib/catalog-shared";
 import type { FilterGroup } from "@/lib/catalog";
 
 export const FILTER_FORM_ID = "shop-filters";
@@ -33,39 +33,43 @@ export function FilterForm({
   keep?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
-  const groups = (
-    <>
-      <Group title="Price">
-        {[["", "Any price"] as const, ...Object.entries(PRICE_BUCKETS).map(([k, v]) => [k, v.label] as const)].map(
-          ([value, label]) => (
-            <Choice key={value || "any"} type="radio" name="price" value={value} checked={(filters.price ?? "") === value}>
-              {label}
+  const price = filters.price ? priceParam(filters.price) : "";
+  const groups = options.map((group) => {
+    // Price: pick one range (radio). A range from a shared link that isn't offered here is still shown.
+    if (group.key === "price") {
+      const ranges = group.values.some((v) => v.value === price) || !filters.price
+        ? group.values
+        : [...group.values, { value: price, label: priceLabel(filters.price), count: 0, color: null, image: null }];
+      return (
+        <Group key="price" title={group.label}>
+          <Choice type="radio" name="price" value="" checked={!price}>
+            Any price
+          </Choice>
+          {ranges.map((v) => (
+            <Choice key={v.value} type="radio" name="price" value={v.value} checked={price === v.value} count={v.count}>
+              {v.label}
             </Choice>
+          ))}
+        </Group>
+      );
+    }
+
+    // Brand, options (Size, Colour…) and filterable specs (Material…), built from the products shown.
+    const chosen = new Set((filters.attrs[group.key] ?? []).map((v) => v.toLowerCase()));
+    return (
+      <Group key={group.key} title={group.label} wrap={group.display !== "list"}>
+        {group.values.map((v) =>
+          group.display === "list" ? (
+            <Choice key={v.value} type="checkbox" name={group.key} value={v.value} checked={chosen.has(v.value.toLowerCase())} count={v.count}>
+              {v.label}
+            </Choice>
+          ) : (
+            <Chip key={v.value} name={group.key} value={v.value} checked={chosen.has(v.value.toLowerCase())} swatch={group.display === "swatch" ? v : null} />
           ),
         )}
       </Group>
-
-      {/* One group per option (Size, Colour…) and filterable spec (Material…), from the product types. */}
-      {options.map((group) => {
-        const chosen = new Set((filters.attrs[group.key] ?? []).map((v) => v.toLowerCase()));
-        return (
-          <Group key={group.key} title={group.label}>
-            {group.values.map((v) => (
-              <Choice key={v.value} type="checkbox" name={group.key} value={v.value} checked={chosen.has(v.value.toLowerCase())}>
-                {(v.color || v.image) && (
-                  <span
-                    className="size-3.5 shrink-0 rounded-full bg-cover bg-center ring-1 ring-inset ring-black/10"
-                    style={{ background: v.image ? `center / cover url("${v.image}")` : (v.color ?? undefined) }}
-                  />
-                )}
-                {v.value}
-              </Choice>
-            ))}
-          </Group>
-        );
-      })}
-    </>
-  );
+    );
+  });
 
   return (
     <Form
@@ -134,14 +138,45 @@ export function SortSelect({ value, includeRelevance }: { value: string; include
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({ title, wrap, children }: { title: string; wrap?: boolean; children: React.ReactNode }) {
   return (
-    <fieldset className="grid gap-2">
-      <legend className="mb-1 font-heading text-xs font-bold uppercase tracking-widest text-muted-foreground">
+    <fieldset>
+      <legend className="mb-3 font-heading text-xs font-bold uppercase tracking-widest text-muted-foreground">
         {title}
       </legend>
-      {children}
+      <div className={wrap ? "flex flex-wrap gap-2" : "grid max-h-64 gap-2 overflow-y-auto"}>{children}</div>
     </fieldset>
+  );
+}
+
+/** A size button or colour swatch that works like a checkbox. */
+function Chip({
+  name,
+  value,
+  checked,
+  swatch,
+}: {
+  name: string;
+  value: string;
+  checked: boolean;
+  swatch: { color: string | null; image: string | null } | null;
+}) {
+  return (
+    <label title={value} className="cursor-pointer">
+      <input type="checkbox" name={name} value={value} defaultChecked={checked} className="peer sr-only" />
+      {swatch ? (
+        <span
+          className="block size-7 rounded-full bg-cover bg-center ring-1 ring-inset ring-black/15 transition-shadow peer-checked:ring-2 peer-checked:ring-foreground peer-checked:ring-offset-2 peer-checked:ring-offset-background peer-focus-visible:outline-2 peer-focus-visible:outline-ring"
+          style={swatch.image ? { backgroundImage: `url("${swatch.image}")` } : { background: swatch.color ?? undefined }}
+        >
+          <span className="sr-only">{value}</span>
+        </span>
+      ) : (
+        <span className="grid h-9 min-w-11 place-items-center rounded-md border border-border px-2.5 text-sm transition-colors peer-checked:border-foreground peer-checked:bg-foreground peer-checked:font-semibold peer-checked:text-background peer-focus-visible:outline-2 peer-focus-visible:outline-ring">
+          {value}
+        </span>
+      )}
+    </label>
   );
 }
 
@@ -150,12 +185,14 @@ function Choice({
   name,
   value,
   checked,
+  count,
   children,
 }: {
   type: "radio" | "checkbox";
   name: string;
   value: string;
   checked: boolean;
+  count?: number;
   children: React.ReactNode;
 }) {
   return (
@@ -165,9 +202,10 @@ function Choice({
         name={name}
         value={value}
         defaultChecked={checked}
-        className={cn("size-4 accent-brand-ink", type === "radio" && "rounded-full")}
+        className={cn("size-4 shrink-0 accent-brand-ink", type === "radio" && "rounded-full")}
       />
       {children}
+      {count !== undefined && count > 0 && <span className="ml-auto text-xs text-muted-foreground">{count}</span>}
     </label>
   );
 }

@@ -12,7 +12,7 @@ export default async function ShopLayout({ children }: LayoutProps<"/">) {
   return (
     <>
       <AnnouncementBar items={chrome.announcements} />
-      <SiteHeader menu={chrome.headerMenu} />
+      <SiteHeader menu={chrome.headerMenu} storeName={chrome.settings.storeName} />
       <main className="flex-1">{children}</main>
       <SiteFooter settings={chrome.settings} menu={chrome.footerMenu} />
       <BagPanel />

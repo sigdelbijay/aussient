@@ -2,7 +2,16 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/cache";
-import { PAGE_SIZE, PRICE_BUCKETS, type Filters } from "@/lib/catalog-shared";
+import {
+  BRAND_KEY,
+  PAGE_SIZE,
+  priceLabel,
+  priceParam,
+  priceRanges,
+  SORTS,
+  type Filters,
+  type Sort,
+} from "@/lib/catalog-shared";
 import {
   filterKey,
   formatSpec,
@@ -25,9 +34,9 @@ import {
  * Product listing, product detail and search queries. All cached under the
  * products tag (cleared by refreshStorefront("products") after admin edits).
  *
- * The shop has a few hundred products, so listings load every product in
- * scope as a light row and filter/sort in plain TypeScript — simpler than
- * building SQL for JSON specs and per-variant prices.
+ * The shop has a few hundred products, so listings load every product in a
+ * category/collection/brand once (cached) and filter/sort in plain TypeScript
+ * — simpler than building SQL for JSON specs and per-variant prices.
  */
 
 // ── Categories (a tree, up to 3 levels) ─────────────────────────
@@ -69,163 +78,203 @@ export function categoryTrail(all: CategoryNode[], id: string): CategoryNode[] {
 export type Scope =
   | { kind: "category"; slug: string }
   | { kind: "collection"; slug: string }
+  | { kind: "brand"; slug: string }
   | { kind: "all" }
-  | { kind: "new" }
-  | { kind: "sale" }
   | { kind: "search"; q: string };
 
-const rowSelect = {
-  id: true,
-  name: true,
-  description: true,
-  tags: true,
-  specs: true,
-  createdAt: true,
-  productType: { select: { name: true, specFields: true } },
-  brand: { select: { name: true } },
+/** Card data plus the extra facts needed to filter, sort and search. */
+const itemInclude = {
+  ...cardInclude,
+  productType: { select: { name: true, optionNames: true, specFields: true } },
   categories: { select: { name: true } },
-  optionValues: {
-    orderBy: { order: "asc" },
-    select: { option: true, value: true, swatchColor: true, swatchImage: true },
-  },
-  variants: { select: { price: true, salePrice: true } },
   _count: { select: { orderItems: true } },
-} satisfies Prisma.ProductSelect;
+} satisfies Prisma.ProductInclude;
 
-type Row = Prisma.ProductGetPayload<{ select: typeof rowSelect }>;
+type Attribute = { key: string; label: string; value: string; color: string | null; image: string | null; kind: "option" | "brand" | "spec" };
 
-/** The price shoppers pay for the cheapest variant. */
-const lowestPrice = (r: Row) =>
-  Math.min(...r.variants.map((v) => paidPrice({ price: Number(v.price), salePrice: v.salePrice === null ? null : Number(v.salePrice) })));
-
-/** Every search word must appear somewhere: name, description, tags, brand, type, categories, specs or options. */
-function matchesSearch(r: Row, q: string) {
-  const text = [
-    r.name,
-    r.description,
-    r.productType.name,
-    r.brand?.name,
-    ...r.tags,
-    ...r.categories.map((c) => c.name),
-    ...Object.values(readSpecs(r.specs)).map(String),
-    ...r.optionValues.map((o) => o.value),
-  ]
-    .join(" ")
-    .toLowerCase();
-  return q
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 6)
-    .every((w) => text.includes(w));
-}
-
-async function scopeRows(scope: Scope): Promise<Row[]> {
-  const and: Prisma.ProductWhereInput[] = [live];
-  let keep: (r: Row) => boolean = () => true;
-
-  switch (scope.kind) {
-    case "category": {
-      const all = await getCategories();
-      const category = all.find((c) => c.slug === scope.slug);
-      if (!category) return [];
-      and.push({ categories: { some: { id: { in: withDescendants(all, category.id) } } } });
-      break;
-    }
-    case "collection": {
-      const c = await prisma.collection.findUnique({ where: { slug: scope.slug } });
-      if (!c) return [];
-      if (c.type === "MANUAL") {
-        and.push({ collections: { some: { id: c.id } } });
-        break;
-      }
-      // Automatic: every rule that's set must match.
-      if (c.ruleCategoryId) {
-        and.push({ categories: { some: { id: { in: withDescendants(await getCategories(), c.ruleCategoryId) } } } });
-      }
-      if (c.ruleProductTypeId) and.push({ productTypeId: c.ruleProductTypeId });
-      if (c.ruleBrandId) and.push({ brandId: c.ruleBrandId });
-      if (c.ruleTag) and.push({ tags: { has: c.ruleTag.toLowerCase() } });
-      if (c.ruleOnSale) and.push(onSaleWhere);
-      const under = c.rulePriceUnder === null ? null : Number(c.rulePriceUnder);
-      const over = c.rulePriceOver === null ? null : Number(c.rulePriceOver);
-      keep = (r) => (under === null || lowestPrice(r) < under) && (over === null || lowestPrice(r) > over);
-      break;
-    }
-    case "sale":
-      and.push(onSaleWhere);
-      break;
-    case "search":
-      keep = (r) => matchesSearch(r, scope.q);
-      break;
-  }
-
-  const rows = await prisma.product.findMany({ where: { AND: and }, select: rowSelect });
-  return rows.filter((r) => r.variants.length > 0 && keep(r));
-}
-
-// ── Filters (built from product types — nothing hard-coded) ─────
-
-export type FilterGroup = {
-  /** URL name, e.g. "strap-colour". */
-  key: string;
-  label: string;
-  values: { value: string; color: string | null; image: string | null }[];
+/** One product in a scope, ready to filter in memory (plain JSON, so it can be cached). */
+type Item = {
+  card: ProductCardData;
+  createdAt: number;
+  sold: number;
+  /** Lowest price shoppers pay. */
+  price: number;
+  /** Brand, option values and filterable specs. */
+  attrs: Attribute[];
+  /** Lower-case text searched by the search box. */
+  text: string;
 };
 
-type Attribute = { key: string; label: string; value: string; color: string | null; image: string | null; option: boolean };
+function toItem(p: Prisma.ProductGetPayload<{ include: typeof itemInclude }>): Item {
+  const card = toCard(p);
+  const fields = readSpecFields(p.productType.specFields);
+  const specs = readSpecs(p.specs);
 
-/** A product's filterable values: every option value, plus specs marked "filterable". */
-function attributes(r: Row): Attribute[] {
-  const out: Attribute[] = r.optionValues.map((o) => ({
+  const attrs: Attribute[] = p.optionValues.map((o) => ({
     key: filterKey(o.option),
     label: o.option,
     value: o.value,
     color: o.swatchColor,
     image: o.swatchImage,
-    option: true,
+    kind: "option",
   }));
-  const specs = readSpecs(r.specs);
-  for (const field of readSpecFields(r.productType.specFields)) {
+  if (p.brand) attrs.push({ key: BRAND_KEY, label: "Brand", value: p.brand.name, color: null, image: null, kind: "brand" });
+  for (const field of fields) {
     const value = specs[field.label];
     if (!field.filterable || value === undefined || value === "" || value === false) continue;
-    out.push({ key: filterKey(field.label), label: field.label, value: formatSpec(field, value), color: null, image: null, option: false });
+    attrs.push({ key: filterKey(field.label), label: field.label, value: formatSpec(field, value), color: null, image: null, kind: "spec" });
   }
-  return out;
+
+  // Name, description, type, brand, tags, categories, every spec and option value.
+  const text = [
+    p.name,
+    p.description,
+    p.productType.name,
+    p.brand?.name,
+    ...p.tags,
+    ...p.categories.map((c) => c.name),
+    // Yes/no specs match by their name ("hypoallergenic"), others by value ("quartz", "38 mm").
+    ...fields.map((f) =>
+      specs[f.label] === undefined || specs[f.label] === false ? "" : f.kind === "yes-no" ? f.label : formatSpec(f, specs[f.label]),
+    ),
+    ...p.optionValues.map((o) => o.value),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return {
+    card,
+    createdAt: p.createdAt.getTime(),
+    sold: p._count.orderItems,
+    price: card.price,
+    // A spec named "Brand" would clash with the brand filter, so the brand wins.
+    attrs: attrs.filter((a) => a.kind === "brand" || a.key !== BRAND_KEY),
+    text,
+  };
 }
 
-function filterGroups(rows: Row[]): FilterGroup[] {
-  const groups = new Map<string, FilterGroup & { option: boolean; seen: Set<string> }>();
-  for (const row of rows) {
-    for (const a of attributes(row)) {
-      const group = groups.get(a.key) ?? { key: a.key, label: a.label, values: [], option: a.option, seen: new Set<string>() };
+/**
+ * Every live product in a scope, loaded once and cached until a product changes.
+ * Filters, sorting and paging then run in memory (the shop has a few hundred
+ * products, so this is fast and much simpler than SQL over JSON specs).
+ */
+const getScopeItems = storefrontCache(
+  async (scope: Exclude<Scope, { kind: "search" }>): Promise<Item[]> => {
+    const and: Prisma.ProductWhereInput[] = [live, { variants: { some: {} } }];
+    let under: number | null = null;
+    let over: number | null = null;
+
+    switch (scope.kind) {
+      case "category": {
+        const all = await getCategories();
+        const category = all.find((c) => c.slug === scope.slug);
+        if (!category) return [];
+        and.push({ categories: { some: { id: { in: withDescendants(all, category.id) } } } });
+        break;
+      }
+      case "brand":
+        and.push({ brand: { slug: scope.slug } });
+        break;
+      case "collection": {
+        const c = await prisma.collection.findUnique({ where: { slug: scope.slug } });
+        if (!c) return [];
+        if (c.type === "MANUAL") {
+          and.push({ collections: { some: { id: c.id } } });
+          break;
+        }
+        // Automatic: every rule that's set must match (no rules = every product).
+        if (c.ruleCategoryId) {
+          and.push({ categories: { some: { id: { in: withDescendants(await getCategories(), c.ruleCategoryId) } } } });
+        }
+        if (c.ruleProductTypeId) and.push({ productTypeId: c.ruleProductTypeId });
+        if (c.ruleBrandId) and.push({ brandId: c.ruleBrandId });
+        if (c.ruleTag) and.push({ tags: { has: c.ruleTag.toLowerCase() } });
+        if (c.ruleOnSale) and.push(onSaleWhere);
+        under = c.rulePriceUnder === null ? null : Number(c.rulePriceUnder);
+        over = c.rulePriceOver === null ? null : Number(c.rulePriceOver);
+        break;
+      }
+    }
+
+    const rows = await prisma.product.findMany({ where: { AND: and }, include: itemInclude });
+    return rows
+      .map(toItem)
+      .filter((i) => (under === null || i.price < under) && (over === null || i.price > over));
+  },
+  ["scope-items"],
+  { tags: [CACHE_TAGS.products] },
+);
+
+/** Every search word must appear somewhere in the product's text. */
+function matchesSearch(item: Item, q: string) {
+  return q
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6)
+    .every((w) => item.text.includes(w));
+}
+
+// ── Filters (built from the products shown — nothing hard-coded) ──
+
+export type FilterGroup = {
+  /** URL name, e.g. "strap-colour" (or "price"). */
+  key: string;
+  label: string;
+  /** swatch = colour dots, chip = small buttons (sizes), list = checkboxes. */
+  display: "swatch" | "chip" | "list";
+  values: { value: string; label: string; count: number; color: string | null; image: string | null }[];
+};
+
+function filterGroups(items: Item[], scope: Scope): FilterGroup[] {
+  const groups = new Map<string, { key: string; label: string; kind: Attribute["kind"]; values: Map<string, FilterGroup["values"][number]> }>();
+  for (const item of items) {
+    const seen = new Set<string>(); // count each product once per value
+    for (const a of item.attrs) {
+      if (a.kind === "brand" && scope.kind === "brand") continue; // every product is that brand
+      const group = groups.get(a.key) ?? { key: a.key, label: a.label, kind: a.kind, values: new Map() };
       groups.set(a.key, group);
-      if (group.seen.has(a.value.toLowerCase())) continue;
-      group.seen.add(a.value.toLowerCase());
-      group.values.push({ value: a.value, color: a.color, image: a.image });
+      const id = a.value.toLowerCase();
+      const value = group.values.get(id) ?? { value: a.value, label: a.value, count: 0, color: a.color, image: a.image };
+      group.values.set(id, value);
+      if (!seen.has(`${a.key}:${id}`)) value.count++;
+      seen.add(`${a.key}:${id}`);
     }
   }
-  return [...groups.values()]
-    .sort((a, b) => Number(b.option) - Number(a.option)) // options (Size, Colour…) before specs
-    .map(({ key, label, values, option }) => ({
-      key,
-      label,
-      // Options keep the admin's order; spec values are sorted (numbers numerically).
-      values: option ? values : values.sort((a, b) => a.value.localeCompare(b.value, "en", { numeric: true })),
-    }));
+
+  const order = { option: 0, brand: 1, spec: 2 }; // Size, Colour… then Brand, then specs
+  const out: FilterGroup[] = [...groups.values()]
+    .sort((a, b) => order[a.kind] - order[b.kind])
+    .map((g) => {
+      let values = [...g.values.values()];
+      // Options keep the admin's order (S, M, L); others are sorted, numbers numerically.
+      if (g.kind !== "option") values = values.sort((a, b) => a.value.localeCompare(b.value, "en", { numeric: true }));
+      const display: FilterGroup["display"] = values.every((v) => v.color || v.image)
+        ? "swatch"
+        : g.kind === "option" && values.every((v) => v.value.length <= 5)
+          ? "chip"
+          : "list";
+      return { key: g.key, label: g.label, display, values };
+    });
+
+  const prices = priceRanges(items.map((i) => i.price));
+  out.unshift({
+    key: "price",
+    label: "Price",
+    display: "list",
+    values: prices.map((r) => ({ value: priceParam(r), label: priceLabel(r), count: r.count, color: null, image: null })),
+  });
+
+  // Only filters that would narrow the list: drop a group whose one value every product has.
+  return out.filter((g) => g.values.length > 1 || (g.values.length === 1 && g.values[0].count < items.length));
 }
 
-function matchesFilters(r: Row, f: Filters, known: Set<string>) {
-  if (f.price) {
-    const { min, max } = PRICE_BUCKETS[f.price];
-    const price = lowestPrice(r);
-    if (price < min || price >= max) return false;
-  }
-  const mine = attributes(r);
+function matchesFilters(item: Item, f: Filters, known: Set<string>) {
+  if (f.price && (item.price < f.price.min || (f.price.max !== null && item.price >= f.price.max))) return false;
   for (const [key, wanted] of Object.entries(f.attrs)) {
     if (!known.has(key)) continue; // e.g. a tracking param — not a filter on this page
     const want = new Set(wanted.map((w) => w.toLowerCase()));
-    if (!mine.some((a) => a.key === key && want.has(a.value.toLowerCase()))) return false;
+    if (!item.attrs.some((a) => a.key === key && want.has(a.value.toLowerCase()))) return false;
   }
   return true;
 }
@@ -241,62 +290,115 @@ export type Listing = {
   filters: FilterGroup[];
 };
 
-export const getListing = storefrontCache(
-  async (scope: Scope, filters: Filters): Promise<Listing> => {
-    const all = await scopeRows(scope);
-    const groups = filterGroups(all);
-    const known = new Set(groups.map((g) => g.key));
-    const rows = all.filter((r) => matchesFilters(r, filters, known));
+export async function getListing(scope: Scope, filters: Filters): Promise<Listing> {
+  const all =
+    scope.kind === "search"
+      ? (await getScopeItems({ kind: "all" })).filter((i) => matchesSearch(i, scope.q))
+      : await getScopeItems(scope);
+  const groups = filterGroups(all, scope);
+  const known = new Set(groups.map((g) => g.key));
+  const items = all.filter((i) => matchesFilters(i, filters, known));
 
-    const q = scope.kind === "search" ? scope.q.toLowerCase() : "";
-    rows.sort((a, b) => {
-      switch (filters.sort) {
-        case "price-asc":
-          return lowestPrice(a) - lowestPrice(b);
-        case "price-desc":
-          return lowestPrice(b) - lowestPrice(a);
-        case "best-selling":
-          return b._count.orderItems - a._count.orderItems || +b.createdAt - +a.createdAt;
-        case "relevance": {
-          // Name matches first, then everything else by newest.
-          const an = a.name.toLowerCase().includes(q) ? 0 : 1;
-          const bn = b.name.toLowerCase().includes(q) ? 0 : 1;
-          return an - bn || +b.createdAt - +a.createdAt;
-        }
-        default:
-          return +b.createdAt - +a.createdAt;
+  const q = scope.kind === "search" ? scope.q.toLowerCase() : "";
+  items.sort((a, b) => {
+    switch (filters.sort) {
+      case "price-asc":
+        return a.price - b.price;
+      case "price-desc":
+        return b.price - a.price;
+      case "best-selling":
+        return b.sold - a.sold || b.createdAt - a.createdAt;
+      case "relevance": {
+        // Name matches first, then everything else by newest.
+        const an = a.card.name.toLowerCase().includes(q) ? 0 : 1;
+        const bn = b.card.name.toLowerCase().includes(q) ? 0 : 1;
+        return an - bn || b.createdAt - a.createdAt;
       }
-    });
+      default:
+        return b.createdAt - a.createdAt;
+    }
+  });
 
-    const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-    const page = Math.min(filters.page, pages);
-    const ids = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((r) => r.id);
-    const products = await prisma.product.findMany({ where: { id: { in: ids } }, include: cardInclude });
-    products.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const page = Math.min(filters.page, pages);
+  return {
+    products: items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((i) => i.card),
+    total: items.length,
+    page,
+    pages,
+    filters: groups,
+  };
+}
 
-    return { products: products.map(toCard), total: rows.length, page, pages, filters: groups };
-  },
-  ["listing"],
-  { tags: [CACHE_TAGS.products] },
-);
+/** A listing page's heading and where it sits in the shop. */
+export type ListingPage = {
+  name: string;
+  image: string | null;
+  description: string | null;
+  scope: Scope;
+  /** Default order (a collection's own sort). */
+  sort: Sort;
+  /** Category pages: the categories above it, and the ones inside it. */
+  trail: { name: string; slug: string }[];
+  children: { name: string; slug: string }[];
+};
 
 /** What /collections/[slug] shows: a category, or else a collection with that web address. */
 export const getListingPage = storefrontCache(
-  async (slug: string) => {
-    const category = (await getCategories()).find((c) => c.slug === slug);
+  async (slug: string): Promise<ListingPage | null> => {
+    const all = await getCategories();
+    const category = all.find((c) => c.slug === slug);
     if (category) {
-      return { name: category.name, image: category.image, description: null, scope: { kind: "category", slug } as Scope };
+      return {
+        name: category.name,
+        image: category.image,
+        description: null,
+        scope: { kind: "category", slug },
+        sort: "newest",
+        trail: categoryTrail(all, category.id).slice(0, -1).map(({ name, slug }) => ({ name, slug })),
+        children: all.filter((c) => c.parentId === category.id).map(({ name, slug }) => ({ name, slug })),
+      };
     }
     const collection = await prisma.collection.findUnique({
       where: { slug },
-      select: { name: true, image: true, description: true },
+      select: { name: true, image: true, description: true, sort: true },
     });
-    if (collection) return { ...collection, scope: { kind: "collection", slug } as Scope };
-    return null;
+    if (!collection) return null;
+    return {
+      ...collection,
+      scope: { kind: "collection", slug },
+      sort: collection.sort in SORTS ? (collection.sort as Sort) : "newest",
+      trail: [],
+      children: [],
+    };
   },
   ["listing-page"],
   { tags: [CACHE_TAGS.products] },
 );
+
+/** What /brands/[slug] shows. */
+export const getBrandPage = storefrontCache(
+  async (slug: string): Promise<(ListingPage & { logo: string | null }) | null> => {
+    const brand = await prisma.brand.findUnique({ where: { slug }, select: { name: true, logo: true, description: true } });
+    if (!brand) return null;
+    return { ...brand, image: null, scope: { kind: "brand", slug }, sort: "newest", trail: [], children: [] };
+  },
+  ["brand-page"],
+  { tags: [CACHE_TAGS.products] },
+);
+
+/** The first products of a collection, in its own order — for home page rows. */
+export async function getCollectionRow(slug: string, limit: number): Promise<ProductCardData[]> {
+  const page = await getListingPage(slug);
+  if (!page || page.scope.kind !== "collection") return [];
+  const listing = await getListing(page.scope, { price: null, attrs: {}, sort: page.sort, page: 1 });
+  return listing.products.slice(0, limit);
+}
+
+/** Top-level categories (with a picture) — the home page's "Shop by category" tiles. */
+export async function getTopCategories() {
+  return (await getCategories()).filter((c) => c.parentId === null);
+}
 
 // ── Product detail ──────────────────────────────────────────────
 
@@ -336,14 +438,21 @@ async function loadProduct(slug: string) {
 
   // Options shoppers pick, in the product type's order. `slot` says which of a
   // variant's option1/2/3 holds the value (only options this product uses are shown).
+  //
+  // `display` picks the control: colour swatches when every value has a swatch,
+  // buttons for sizes (or other short values like "38"), a dropdown otherwise.
   const options = p.productType.optionNames
-    .map((name, slot) => ({
-      name,
-      slot,
-      values: p.optionValues
+    .map((name, slot) => {
+      const values = p.optionValues
         .filter((v) => v.option === name)
-        .map((v) => ({ id: v.id, value: v.value, color: v.swatchColor, image: v.swatchImage })),
-    }))
+        .map((v) => ({ id: v.id, value: v.value, color: v.swatchColor, image: v.swatchImage }));
+      const display: "swatch" | "button" | "select" = values.every((v) => v.color || v.image)
+        ? "swatch"
+        : /size/i.test(name) || values.every((v) => v.value.length <= 6)
+          ? "button"
+          : "select";
+      return { name, slot, display, values };
+    })
     .filter((o) => o.values.length > 0);
   const valueName = new Map(p.optionValues.map((v) => [v.id, v.value]));
 

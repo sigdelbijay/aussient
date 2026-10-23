@@ -21,6 +21,14 @@ const badgeLabel = {
 // Card widths: 2-up on phones, ~4-up on desktop rows/grids.
 const SIZES = "(min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw";
 
+// Every card uses the same 4:5 frame. Photos are fitted whole ("contain") so
+// square shots (watches, earrings) and tall ones (clothing) both show fully;
+// "multiply" blends white photo backgrounds into the grey frame.
+const PHOTO = "object-contain mix-blend-multiply dark:mix-blend-normal";
+
+/** Colour dots shown before "+N". */
+const MAX_DOTS = 5;
+
 export function ProductCard({ product }: { product: ProductCardData }) {
   // Start on the first swatch that's in stock.
   const [activeSwatch, setActiveSwatch] = useState(() =>
@@ -65,7 +73,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
       : null;
 
   return (
-    <div className="group/card flex flex-col">
+    <div className="group/card flex h-full flex-col">
       {/* Image area */}
       <div className="relative aspect-[4/5] overflow-hidden rounded-lg bg-muted">
         <Link href={href} className="absolute inset-0" aria-label={product.name}>
@@ -76,7 +84,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
               alt={front.alt}
               fill
               sizes={SIZES}
-              className="object-cover transition-opacity duration-200 ease-snappy group-hover/card:opacity-0"
+              className={cn(PHOTO, "transition-opacity duration-200 ease-snappy group-hover/card:opacity-0")}
             />
           )}
           {/* Second photo, revealed on hover */}
@@ -86,7 +94,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
               alt=""
               fill
               sizes={SIZES}
-              className="scale-105 object-cover opacity-0 transition-all duration-200 ease-snappy group-hover/card:scale-100 group-hover/card:opacity-100"
+              className={cn(PHOTO, "scale-105 opacity-0 transition-all duration-200 ease-snappy group-hover/card:scale-100 group-hover/card:opacity-100")}
             />
           )}
         </Link>
@@ -151,11 +159,11 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         )}
       </div>
 
-      {/* Details */}
-      <div className="mt-3 flex flex-col gap-1.5">
-        {/* Swatches */}
-        <div className="flex items-center gap-1.5">
-          {product.swatches.map((swatch, i) => (
+      {/* Details — fixed-height rows so every card in a grid lines up. */}
+      <div className="mt-3 flex flex-1 flex-col gap-1.5">
+        {/* Swatches (always takes its row, even when empty) */}
+        <div className="flex h-5 items-center gap-1.5">
+          {product.swatches.slice(0, MAX_DOTS).map((swatch, i) => (
             <button
               key={swatch.id}
               type="button"
@@ -175,16 +183,19 @@ export function ProductCard({ product }: { product: ProductCardData }) {
               }
             />
           ))}
+          {product.swatches.length > MAX_DOTS && (
+            <Link href={href} className="text-xs text-muted-foreground hover:text-foreground">
+              +{product.swatches.length - MAX_DOTS}
+            </Link>
+          )}
         </div>
 
-        <h3 className="text-sm font-medium leading-snug">
+        <p className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">{product.subtitle}</p>
+        <h3 className="line-clamp-2 min-h-[2lh] text-sm font-medium leading-snug">
           <Link href={href} className="hover:underline">
             {product.name}
           </Link>
         </h3>
-        <p className="text-xs text-muted-foreground">
-          {[product.swatches[activeSwatch]?.name, product.subtitle].filter(Boolean).join(" · ")}
-        </p>
 
         <div className="flex items-center gap-2">
           <span className={cn("text-sm font-semibold", discount && "text-brand-accent")}>
@@ -197,6 +208,9 @@ export function ProductCard({ product }: { product: ProductCardData }) {
             </span>
           )}
         </div>
+
+        {/* "3 colours · More sizes" (like THE ICONIC) */}
+        <p className="min-h-[1lh] truncate text-xs text-muted-foreground">{product.hints.join(" · ")}</p>
       </div>
     </div>
   );

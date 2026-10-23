@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { cn } from "cn";
 import { buttonVariants } from "@/components/ui/button";
+import { getTopCategories } from "@/lib/catalog";
 import type { HomeSectionData } from "@/lib/home-sections";
 import { SectionHeading, SectionShell } from "./section-heading";
 
@@ -12,34 +13,38 @@ const accentButton = cn(
   "h-11 bg-brand-accent px-6 font-heading font-bold uppercase text-brand-accent-foreground hover:bg-brand-accent/85",
 );
 
-/** Studs / Hoops / Drops / Huggies… square tiles linking to each collection. */
-export function CategoryTiles({
+/** "Shop by category": a tile for each top-level category, with its picture. */
+export async function CategoryTiles({
   title,
   config,
 }: {
   title: string | null;
   config: ConfigOf<"category-tiles">;
 }) {
+  const categories = (await getTopCategories()).slice(0, config.limit ?? 12);
+  if (categories.length === 0) return null;
   return (
     <SectionShell>
       <SectionHeading title={title} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[repeat(auto-fit,minmax(0,1fr))]">
-        {config.tiles.map((tile) => (
+        {categories.map((c) => (
           <Link
-            key={tile.href + tile.label}
-            href={tile.href}
-            className="group/tile relative flex aspect-square items-end overflow-hidden rounded-lg bg-muted p-4"
+            key={c.id}
+            href={`/collections/${c.slug}`}
+            className="group/tile relative flex aspect-[4/5] items-end overflow-hidden rounded-lg bg-muted p-4"
           >
-            <Image
-              src={tile.image}
-              alt=""
-              fill
-              sizes="(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw"
-              className="object-cover transition-transform duration-300 ease-snappy group-hover/tile:scale-105"
-            />
+            {c.image && (
+              <Image
+                src={c.image}
+                alt=""
+                fill
+                sizes="(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw"
+                className="object-cover transition-transform duration-300 ease-snappy group-hover/tile:scale-105"
+              />
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
             <span className="relative font-heading text-lg font-extrabold uppercase tracking-wide text-white transition-transform duration-200 ease-snappy group-hover/tile:translate-x-1">
-              {tile.label}
+              {c.name}
             </span>
           </Link>
         ))}

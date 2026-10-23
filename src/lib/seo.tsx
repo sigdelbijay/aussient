@@ -35,7 +35,7 @@ export function pageMetadata({
   const images = [
     image
       ? { url: image.url, alt: image.alt ?? title }
-      : { url: "/opengraph-image", width: 1200, height: 630, alt: `${SITE_NAME} — Fashion Jewellery` },
+      : { url: "/opengraph-image", width: 1200, height: 630, alt: SITE_NAME },
   ];
   return {
     title,

@@ -8,10 +8,12 @@ import type { MenuGroup } from "@/lib/storefront";
 
 export function MobileMenu({
   menu,
+  storeName,
   open,
   onClose,
 }: {
   menu: MenuGroup[];
+  storeName: string;
   open: boolean;
   onClose: () => void;
 }) {
@@ -45,7 +47,7 @@ export function MobileMenu({
         )}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-4">
-          <span className="font-heading text-lg font-extrabold tracking-tight">AUSSIENT</span>
+          <span className="font-heading text-lg font-extrabold tracking-tight uppercase">{storeName}</span>
           <button
             type="button"
             onClick={onClose}
@@ -102,6 +104,17 @@ export function MobileMenu({
                         >
                           {link.label}
                         </Link>
+                        {/* Third level, e.g. Clothing > Tops > T-shirts */}
+                        {link.children?.map((sub) => (
+                          <Link
+                            key={sub.id}
+                            href={sub.url}
+                            onClick={onClose}
+                            className="block py-1.5 pl-12 pr-4 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            {sub.label}
+                          </Link>
+                        ))}
                       </li>
                     ))}
                   </ul>

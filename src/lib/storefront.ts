@@ -3,7 +3,6 @@ import { unstable_cache } from "next/cache";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/cache";
-import type { ProductSource } from "@/lib/home-sections";
 import { LOW_STOCK } from "@/lib/catalog-shared";
 
 /**
@@ -20,7 +19,7 @@ import { LOW_STOCK } from "@/lib/catalog-shared";
 
 // The data cache outlives deploys, so bump this whenever the shape of cached
 // data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 
 export const storefrontCache: typeof unstable_cache =
   process.env.NODE_ENV === "development"
@@ -58,12 +57,16 @@ export async function rebuildAtNextChange(items: Scheduled[], now = Date.now()) 
 
 // ── Site chrome: settings, announcement bar, menus ──────────────
 
-export type MenuLink = { id: string; label: string; url: string; image: string | null };
+export type MenuLink = { id: string; label: string; url: string; image: string | null; children?: MenuLink[] };
 export type MenuGroup = MenuLink & { children: MenuLink[] };
 
 export type SiteChrome = {
   settings: {
     storeName: string;
+    tagline: string | null;
+    metaDescription: string | null;
+    deliveryInfo: string | null;
+    returnsInfo: string | null;
     newsletterHeading: string;
     newsletterText: string;
     footerPerks: string[];
@@ -91,6 +94,37 @@ async function loadMenu(location: "header" | "footer"): Promise<MenuGroup[]> {
   return items.map((m) => ({ ...pick(m), children: m.children.map(pick) }));
 }
 
+/**
+ * The header menu: one entry per top-level category (its sub-categories, and
+ * theirs, fill the mega menu, with the category's picture), followed by any
+ * extra header links set up in the admin menu (e.g. New In, Sale).
+ */
+async function loadHeaderMenu(): Promise<MenuGroup[]> {
+  const [categories, extras] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, slug: true, image: true, parentId: true },
+    }),
+    loadMenu("header"),
+  ]);
+  const link = (c: (typeof categories)[number]): MenuLink => ({
+    id: c.id,
+    label: c.name,
+    url: `/collections/${c.slug}`,
+    image: c.image,
+  });
+  const childrenOf = (id: string) => categories.filter((c) => c.parentId === id);
+  const tree = categories
+    .filter((c) => c.parentId === null)
+    .map((top) => ({
+      ...link(top),
+      children: childrenOf(top.id).map((mid) => ({ ...link(mid), children: childrenOf(mid.id).map(link) })),
+    }));
+  // A menu item pointing at a category page is already covered by the tree.
+  const categoryUrls = new Set(categories.map((c) => `/collections/${c.slug}`));
+  return [...tree, ...extras.filter((m) => !categoryUrls.has(m.url))];
+}
+
 export const getSiteChrome = storefrontCache(
   async (): Promise<SiteChrome> => {
     const [settings, banners, headerMenu, footerMenu] = await Promise.all([
@@ -99,12 +133,16 @@ export const getSiteChrome = storefrontCache(
         where: { placement: "announcement", active: true },
         orderBy: { order: "asc" },
       }),
-      loadMenu("header"),
+      loadHeaderMenu(),
       loadMenu("footer"),
     ]);
     return {
       settings: {
         storeName: settings?.storeName ?? "Aussient",
+        tagline: settings?.tagline ?? null,
+        metaDescription: settings?.metaDescription ?? null,
+        deliveryInfo: settings?.deliveryInfo ?? null,
+        returnsInfo: settings?.returnsInfo ?? null,
         newsletterHeading: settings?.newsletterHeading ?? "Join the list",
         newsletterText: settings?.newsletterText ?? "",
         footerPerks: Array.isArray(settings?.footerPerks) ? (settings.footerPerks as string[]) : [],
@@ -127,7 +165,8 @@ export const getSiteChrome = storefrontCache(
     };
   },
   ["site-chrome"],
-  { tags: [CACHE_TAGS.content] },
+  // Categories (the header menu) are cleared with products.
+  { tags: [CACHE_TAGS.content, CACHE_TAGS.products] },
 );
 
 // ── Home sections ───────────────────────────────────────────────
@@ -175,6 +214,8 @@ export type ProductCardData = {
   /** Shown in this order: SALE, LOW STOCK, NEW. */
   badges: ("sale" | "low" | "new")[];
   images: { url: string; alt: string }[];
+  /** Short hints under the name, e.g. "3 colours", "More sizes". */
+  hints: string[];
   /** Colour dots for the first option that has swatches (e.g. Colour). */
   swatches: {
     id: string;
@@ -231,6 +272,14 @@ function cheapest(variants: { price: Prisma.Decimal; salePrice: Money }[]) {
 export const variantOptionIds = (v: { option1Id: string | null; option2Id: string | null; option3Id: string | null }) =>
   [v.option1Id, v.option2Id, v.option3Id].filter((x): x is string => !!x);
 
+/** "Size" → "sizes", "Strap colour" → "strap colours", "Finish" → "finishes". */
+function plural(option: string) {
+  const word = option.toLowerCase();
+  if (/(s|x|ch|sh)$/.test(word)) return `${word}es`;
+  if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`;
+  return `${word}s`;
+}
+
 export function toCard(p: CardProduct): ProductCardData {
   const base = cheapest(p.variants);
   const prices = new Set(p.variants.map((v) => pricing(v.price, v.salePrice).price));
@@ -260,6 +309,13 @@ export function toCard(p: CardProduct): ProductCardData {
       };
     });
 
+  // "3 colours" for the swatch option, "More sizes" for other options with a choice.
+  const hints = optionsUsed.flatMap((name) => {
+    const count = p.optionValues.filter((v) => v.option === name).length;
+    if (count < 2) return [];
+    return name === swatchOption ? [`${count} ${plural(name)}`] : [`More ${plural(name)}`];
+  });
+
   const general = p.media.filter((m) => !m.optionValueId);
   const photos = (general.length ? general : p.media).slice(0, 2);
 
@@ -276,6 +332,7 @@ export function toCard(p: CardProduct): ProductCardData {
       ...(isNew ? (["new"] as const) : []),
     ],
     images: photos.map((m) => ({ url: m.url, alt: m.alt ?? p.name })),
+    hints,
     swatches,
     quickAddVariantId: p.variants.length === 1 ? p.variants[0].id : null,
     stock,
@@ -284,79 +341,7 @@ export function toCard(p: CardProduct): ProductCardData {
 
 export const live = { status: "LIVE" } satisfies Prisma.ProductWhereInput;
 
-/** Has a variant whose price shoppers pay (sale price if set) is at most `max`. */
-const pricedAtMost = (max: number): Prisma.ProductWhereInput => ({
-  variants: { some: { OR: [{ salePrice: { lte: max } }, { salePrice: null, price: { lte: max } }] } },
-});
-
 export const onSaleWhere = { variants: { some: { salePrice: { not: null } } } } satisfies Prisma.ProductWhereInput;
-
-async function loadProducts(source: ProductSource, limit: number, maxPrice?: number) {
-  switch (source) {
-    case "new":
-      return prisma.product.findMany({
-        where: live,
-        orderBy: { createdAt: "desc" },
-        take: limit,
-        include: cardInclude,
-      });
-    case "featured":
-      return prisma.product.findMany({
-        where: { ...live, featured: true },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-        include: cardInclude,
-      });
-    case "sale":
-      return prisma.product.findMany({
-        where: { ...live, ...onSaleWhere },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-        include: cardInclude,
-      });
-    case "under": {
-      const rows = await prisma.product.findMany({
-        where: { ...live, ...pricedAtMost(maxPrice ?? 20) },
-        include: cardInclude,
-      });
-      // Cheapest first.
-      return rows.sort((a, b) => cheapest(a.variants).price - cheapest(b.variants).price).slice(0, limit);
-    }
-    case "bestsellers": {
-      const top = await prisma.orderItem.groupBy({
-        by: ["productId"],
-        where: { productId: { not: null }, order: { status: { in: ["PAID", "SHIPPED"] } } },
-        _sum: { quantity: true },
-        orderBy: { _sum: { quantity: "desc" } },
-        take: limit,
-      });
-      const ids = top.map((t) => t.productId!);
-      const sold = await prisma.product.findMany({
-        where: { ...live, id: { in: ids } },
-        include: cardInclude,
-      });
-      sold.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-      // Not enough sales yet? Top up with featured items so the row is never empty.
-      if (sold.length < limit) {
-        const fill = await prisma.product.findMany({
-          where: { ...live, id: { notIn: sold.map((p) => p.id) } },
-          orderBy: [{ featured: "desc" }, { createdAt: "desc" }],
-          take: limit - sold.length,
-          include: cardInclude,
-        });
-        sold.push(...fill);
-      }
-      return sold;
-    }
-  }
-}
-
-export const getProductRow = storefrontCache(
-  async (source: ProductSource, limit: number, maxPrice?: number) =>
-    (await loadProducts(source, limit, maxPrice)).map(toCard),
-  ["product-row"],
-  { tags: [CACHE_TAGS.products] },
-);
 
 // ── Reviews ─────────────────────────────────────────────────────
 

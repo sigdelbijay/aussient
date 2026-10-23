@@ -11,7 +11,7 @@ import { MobileMenu } from "@/components/mobile-menu";
 import { openBag, useBag } from "@/lib/bag-store";
 import type { MenuGroup } from "@/lib/storefront";
 
-export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
+export function SiteHeader({ menu, storeName }: { menu: MenuGroup[]; storeName: string }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
@@ -41,8 +41,8 @@ export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
         </button>
 
         {/* Logo */}
-        <Link href="/" className="font-heading text-xl font-extrabold tracking-tight lg:text-2xl">
-          AUSSIENT
+        <Link href="/" className="font-heading text-xl font-extrabold tracking-tight uppercase lg:text-2xl">
+          {storeName}
         </Link>
 
         {/* Desktop nav + mega menu */}
@@ -54,11 +54,11 @@ export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
             <div
               key={cat.id}
               className="flex items-stretch"
-              onMouseEnter={() => setActiveCategory(cat.children.length > 0 ? cat.id : null)}
+              onMouseEnter={() => setActiveCategory(cat.children.length > 0 || cat.image ? cat.id : null)}
             >
               <Link
                 href={cat.url}
-                onFocus={() => setActiveCategory(cat.children.length > 0 ? cat.id : null)}
+                onFocus={() => setActiveCategory(cat.children.length > 0 || cat.image ? cat.id : null)}
                 className={cn(
                   "flex items-center gap-1 px-3.5 font-heading text-sm font-bold uppercase tracking-wide transition-colors duration-200",
                   cat.label.toLowerCase() === "sale" && "text-brand-accent",
@@ -66,7 +66,7 @@ export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
                 )}
               >
                 {cat.label}
-                {cat.children.length > 0 && (
+                {(cat.children.length > 0 || cat.image) && (
                   <ChevronDown
                     className={cn(
                       "size-3.5 transition-transform duration-200 ease-snappy",
@@ -129,26 +129,40 @@ export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
       >
         {active && (
           <div className="mx-auto grid max-w-7xl grid-cols-[1.4fr_1fr] gap-8 px-4 py-6">
-            {/* Links */}
+            {/* Sub-categories: each is a column heading with its own sub-categories under it. */}
             <div>
               <div className="mb-4 flex items-baseline gap-3">
                 <h2 className="text-display text-xl">{active.label}</h2>
-                <Link
-                  href={active.url}
-                  className="text-xs font-medium text-brand-accent hover:underline"
-                >
+                <Link href={active.url} className="text-xs font-medium text-brand-accent hover:underline">
                   Shop all →
                 </Link>
               </div>
-              <ul className="grid grid-cols-2 gap-x-6 gap-y-2">
+              <ul className="grid grid-cols-3 gap-x-6 gap-y-5">
                 {active.children.map((link) => (
                   <li key={link.id}>
                     <Link
                       href={link.url}
-                      className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
+                      className={cn(
+                        "text-sm transition-colors duration-200 hover:text-brand-accent",
+                        link.children?.length ? "font-semibold" : "text-muted-foreground hover:text-foreground",
+                      )}
                     >
                       {link.label}
                     </Link>
+                    {!!link.children?.length && (
+                      <ul className="mt-2 grid gap-1.5">
+                        {link.children.map((sub) => (
+                          <li key={sub.id}>
+                            <Link
+                              href={sub.url}
+                              className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
+                            >
+                              {sub.label}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -176,7 +190,7 @@ export function SiteHeader({ menu }: { menu: MenuGroup[] }) {
         )}
       </div>
 
-      <MobileMenu menu={menu} open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <MobileMenu menu={menu} storeName={storeName} open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </header>
   );
 }

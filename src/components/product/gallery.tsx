@@ -61,7 +61,8 @@ export function Gallery({ media }: { media: GalleryMedia[] }) {
                     fill
                     priority={i === 0}
                     sizes="(min-width: 1024px) 50vw, 100vw"
-                    className="object-cover"
+                    // Whole photo, square or tall; white backgrounds blend into the grey frame.
+                    className="object-contain mix-blend-multiply dark:mix-blend-normal"
                   />
                 </button>
               )}

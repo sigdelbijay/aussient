@@ -138,6 +138,7 @@ model Brand {
   name              String       @unique
   slug              String       @unique
   logo              String?
+  description       String? // shown at the top of /brands/[slug]
   products          Product[]
   collectionsByRule Collection[]
   createdAt         DateTime     @default(now())
@@ -267,6 +268,8 @@ model Collection {
   image             String?
   description       String?
   type              CollectionType @default(MANUAL)
+  /// Default order on its page and in home rows: newest | best-selling | price-asc | price-desc
+  sort              String         @default("newest")
   products          Product[]      @relation("CollectionProducts") // MANUAL: the chosen products
   // AUTOMATIC rules (leave blank to ignore):
   ruleCategoryId    String? // in this category (or one inside it)
@@ -527,6 +530,10 @@ model SiteSettings {
   newsletterHeading     String?
   newsletterText        String?
   footerPerks           Json? // ["Free shipping over $50", ...]
+  tagline               String? // e.g. "Fashion, accessories & lifestyle" — page titles and share image
+  metaDescription       String? // the site's default description in Google
+  deliveryInfo          String? // "Delivery" section on product pages, one fact per line
+  returnsInfo           String? // "Returns" section on product pages, one fact per line
   updatedAt             DateTime @updatedAt
 }
 

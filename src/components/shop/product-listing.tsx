@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ProductCard } from "@/components/product-card";
 import { getListing, type Scope } from "@/lib/catalog";
@@ -20,10 +22,13 @@ function hrefWith(basePath: string, params: Params, change: Record<string, strin
   return qs ? `${basePath}?${qs}` : basePath;
 }
 
-/** Product grid with filters, sorting and paging — used by collections, new-in, sale and search. */
+/** Product grid with filters, sorting and paging — used by categories, collections, brands and search. */
 export async function ProductListing({
   title,
   intro,
+  logo,
+  trail = [],
+  subcategories = [],
   scope,
   filters,
   params,
@@ -32,6 +37,12 @@ export async function ProductListing({
 }: {
   title: string;
   intro?: React.ReactNode;
+  /** A brand's logo, shown by the title. */
+  logo?: string | null;
+  /** Categories above this one, for the breadcrumb. */
+  trail?: { name: string; slug: string }[];
+  /** Categories inside this one, shown as quick links. */
+  subcategories?: { name: string; slug: string }[];
   scope: Scope;
   filters: Filters;
   params: Params;
@@ -44,9 +55,35 @@ export async function ProductListing({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
+      {trail.length > 0 && (
+        <nav aria-label="Breadcrumb" className="mb-3 text-xs text-muted-foreground">
+          <ol className="flex flex-wrap items-center gap-1.5">
+            <li>
+              <Link href="/" className="hover:text-foreground">
+                Home
+              </Link>
+            </li>
+            {trail.map((c) => (
+              <Fragment key={c.slug}>
+                <li aria-hidden>/</li>
+                <li>
+                  <Link href={`/collections/${c.slug}`} className="hover:text-foreground">
+                    {c.name}
+                  </Link>
+                </li>
+              </Fragment>
+            ))}
+          </ol>
+        </nav>
+      )}
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-display text-3xl sm:text-5xl">{title}</h1>
+          <div className="flex items-center gap-4">
+            {logo && (
+              <Image src={logo} alt="" width={96} height={48} className="h-12 w-auto rounded-md object-contain" />
+            )}
+            <h1 className="text-display text-3xl sm:text-5xl">{title}</h1>
+          </div>
           {intro && <div className="mt-2 max-w-2xl text-sm text-muted-foreground">{intro}</div>}
           <p className="mt-1 text-sm text-muted-foreground" aria-live="polite">
             {listing.total} {listing.total === 1 ? "product" : "products"}
@@ -62,6 +99,23 @@ export async function ProductListing({
         </div>
         <SortSelect value={filters.sort} includeRelevance={scope.kind === "search"} />
       </header>
+
+      {subcategories.length > 0 && (
+        <nav aria-label="Categories" className="-mx-4 mb-6 overflow-x-auto px-4 [scrollbar-width:none]">
+          <ul className="flex gap-2">
+            {subcategories.map((c) => (
+              <li key={c.slug}>
+                <Link
+                  href={`/collections/${c.slug}`}
+                  className="block whitespace-nowrap rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-foreground"
+                >
+                  {c.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[13rem_1fr] lg:gap-10">
         <aside aria-label="Filters">
@@ -83,7 +137,7 @@ export async function ProductListing({
               </Link>
             </p>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-8 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 xl:grid-cols-4">
               {listing.products.map((p) => (
                 <ProductCard key={p.id} product={p} />
               ))}

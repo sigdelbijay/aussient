@@ -1,25 +1,19 @@
 import type { Metadata } from "next";
-import { ProductListing } from "@/components/shop/product-listing";
-import { activeFilterCount, parseFilters } from "@/lib/catalog-shared";
-import { pageMetadata } from "@/lib/seo";
+import { notFound } from "next/navigation";
+import { listingMetadata, ListingPageView } from "@/components/shop/listing-page";
+import { getListingPage } from "@/lib/catalog";
 
-const description = "Fashion jewellery on sale at Aussient — earrings, necklaces and rings at their lowest prices.";
+// /sale shows the "sale" collection (name, description, rules and sort are set in the admin).
+const SLUG = "sale";
 
 export async function generateMetadata({ searchParams }: PageProps<"/sale">): Promise<Metadata> {
-  const filtered = activeFilterCount(parseFilters(await searchParams)) > 0;
-  return pageMetadata({ title: "Sale", description, path: "/sale", noindex: filtered });
+  const page = await getListingPage(SLUG);
+  if (!page) return {};
+  return listingMetadata(page, "/sale", await searchParams);
 }
 
 export default async function SalePage({ searchParams }: PageProps<"/sale">) {
-  const sp = await searchParams;
-  return (
-    <ProductListing
-      title="Sale"
-      intro="Last chance styles at their lowest prices."
-      scope={{ kind: "sale" }}
-      filters={parseFilters(sp)}
-      params={sp}
-      basePath="/sale"
-    />
-  );
+  const page = await getListingPage(SLUG);
+  if (!page) notFound();
+  return <ListingPageView page={page} path="/sale" params={await searchParams} />;
 }
