@@ -45,6 +45,7 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
       intro={searchForm}
       scope={{ kind: "search", q }}
       filters={parseFilters(sp, "relevance")}
+      defaultSort="relevance"
       params={sp}
       basePath="/search"
       keep={{ q }}

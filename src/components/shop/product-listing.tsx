@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ProductCard } from "@/components/product-card";
 import { getListing, type Scope } from "@/lib/catalog";
-import { activeFilterCount, type Filters } from "@/lib/catalog-shared";
+import { activeFilterCount, type Filters, type Sort } from "@/lib/catalog-shared";
 import { FilterForm, SortSelect } from "./filter-form";
 
 type Params = Record<string, string | string[] | undefined>;
@@ -31,6 +31,7 @@ export async function ProductListing({
   subcategories = [],
   scope,
   filters,
+  defaultSort = "newest",
   params,
   basePath,
   keep,
@@ -45,6 +46,8 @@ export async function ProductListing({
   subcategories?: { name: string; slug: string }[];
   scope: Scope;
   filters: Filters;
+  /** The page's own order, left out of the URL when chosen. */
+  defaultSort?: Sort;
   params: Params;
   basePath: string;
   keep?: Record<string, string>;
@@ -123,6 +126,7 @@ export async function ProductListing({
             basePath={basePath}
             options={listing.filters}
             filters={filters}
+            defaultSort={defaultSort}
             activeCount={active}
             keep={keep}
           />
@@ -139,7 +143,8 @@ export async function ProductListing({
           ) : (
             <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 xl:grid-cols-4">
               {listing.products.map((p) => (
-                <ProductCard key={p.id} product={p} />
+                // Re-mount when the filters pick another colour so the card switches.
+                <ProductCard key={`${p.id}:${p.startSwatch ?? ""}`} product={p} />
               ))}
             </div>
           )}

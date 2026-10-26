@@ -19,7 +19,7 @@ import { LOW_STOCK } from "@/lib/catalog-shared";
 
 // The data cache outlives deploys, so bump this whenever the shape of cached
 // data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 8;
 
 export const storefrontCache: typeof unstable_cache =
   process.env.NODE_ENV === "development"
@@ -225,9 +225,16 @@ export type ProductCardData = {
     stock: number;
     /** The variant to add when this swatch alone decides it (one-option products), else null. */
     variantId: string | null;
+    /** Cheapest price for this colour (and the price to cross out when that's a sale price). */
     price: number;
     compareAtPrice: number | null;
+    /** True when this colour's variants cost different amounts ("From $X"). */
+    priceVaries: boolean;
+    /** Photos of this colour (then general photos); empty = use the product's photos. */
+    images: { url: string; alt: string }[];
   }[];
+  /** Which colour dot to open on, set by filtered listings (e.g. Lens = Brown → the colour sold with Brown). */
+  startSwatch?: number;
   /** For products with a single variant: the one to add straight to the bag. */
   quickAddVariantId: string | null;
   /** Units available across all variants. */
@@ -292,9 +299,13 @@ export function toCard(p: CardProduct): ProductCardData {
   const swatchOption = optionsUsed.find((name) =>
     p.optionValues.some((v) => v.option === name && (v.swatchColor || v.swatchImage)),
   );
+  const general = p.media.filter((m) => !m.optionValueId);
+  const photo = (m: { url: string; alt: string | null }) => ({ url: m.url, alt: m.alt ?? p.name });
+
   const swatches = p.optionValues
     .filter((v) => v.option === swatchOption)
     .map((value) => {
+      const own = p.media.filter((m) => m.optionValueId === value.id);
       const mine = p.variants.filter((v) => variantOptionIds(v).includes(value.id));
       // With only this one option, picking the swatch picks the variant.
       const exact = optionsUsed.length === 1 && mine.length === 1 ? mine[0] : null;
@@ -306,6 +317,8 @@ export function toCard(p: CardProduct): ProductCardData {
         stock: mine.reduce((n, v) => n + v.stock, 0),
         variantId: exact?.id ?? null,
         ...(mine.length ? cheapest(mine) : base),
+        priceVaries: new Set(mine.map((v) => pricing(v.price, v.salePrice).price)).size > 1,
+        images: own.length ? [...own, ...general].slice(0, 2).map(photo) : [],
       };
     });
 
@@ -316,7 +329,6 @@ export function toCard(p: CardProduct): ProductCardData {
     return name === swatchOption ? [`${count} ${plural(name)}`] : [`More ${plural(name)}`];
   });
 
-  const general = p.media.filter((m) => !m.optionValueId);
   const photos = (general.length ? general : p.media).slice(0, 2);
 
   return {
@@ -331,7 +343,7 @@ export function toCard(p: CardProduct): ProductCardData {
       ...(stock > 0 && stock <= LOW_STOCK ? (["low"] as const) : []),
       ...(isNew ? (["new"] as const) : []),
     ],
-    images: photos.map((m) => ({ url: m.url, alt: m.alt ?? p.name })),
+    images: photos.map(photo),
     hints,
     swatches,
     quickAddVariantId: p.variants.length === 1 ? p.variants[0].id : null,

@@ -39,6 +39,7 @@ export function ListingPageView({
       subcategories={page.children}
       scope={page.scope}
       filters={parseFilters(params, page.sort)}
+      defaultSort={page.sort}
       params={params}
       basePath={path}
     />

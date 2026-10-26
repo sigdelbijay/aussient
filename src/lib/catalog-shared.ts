@@ -102,7 +102,7 @@ export function parseFilters(params: Params, defaultSort: Sort = "newest"): Filt
   return {
     price: parsePrice(price),
     attrs,
-    sort: sort && (sort in SORTS || sort === "relevance") ? (sort as Sort) : defaultSort,
+    sort: sort && (Object.hasOwn(SORTS, sort) || sort === "relevance") ? (sort as Sort) : defaultSort,
     page: Number.isFinite(page) && page > 0 ? Math.min(page, 500) : 1,
   };
 }

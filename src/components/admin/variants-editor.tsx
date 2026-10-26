@@ -331,7 +331,7 @@ export function VariantsEditor({
               return (
                 <tr key={r.id} className="border-b border-border last:border-0">
                   <td className="font-medium whitespace-nowrap">{r.label}</td>
-                  {cell("sku", { width: "w-32", maxLength: 60, placeholder: "SKU" })}
+                  {cell("sku", { width: "w-44", maxLength: 60, placeholder: "SKU" })}
                   {cell("price", { width: "w-24", inputMode: "decimal", required: true })}
                   {cell("salePrice", { width: "w-24", inputMode: "decimal", placeholder: "—" })}
                   {cell("stock", { width: "w-20", inputMode: "numeric" })}

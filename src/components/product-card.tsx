@@ -30,23 +30,26 @@ const PHOTO = "object-contain mix-blend-multiply dark:mix-blend-normal";
 const MAX_DOTS = 5;
 
 export function ProductCard({ product }: { product: ProductCardData }) {
-  // Start on the first swatch that's in stock.
-  const [activeSwatch, setActiveSwatch] = useState(() =>
-    Math.max(
-      0,
-      product.swatches.findIndex((s) => s.stock > 0),
-    ),
-  );
+  // Open on the colour a filtered listing asks for; otherwise a colour that's
+  // on sale (its price is the one shown and sorted by), else the first in stock.
+  const [activeSwatch, setActiveSwatch] = useState(() => {
+    if (product.startSwatch !== undefined) return product.startSwatch;
+    const onSale = product.swatches.findIndex((s) => s.stock > 0 && s.compareAtPrice !== null);
+    const inStock = product.swatches.findIndex((s) => s.stock > 0);
+    return Math.max(0, onSale >= 0 ? onSale : inStock);
+  });
   const [added, setAdded] = useState(false);
-  const [front, back] = product.images;
   const href = `/products/${product.slug}`;
 
+  // The picked colour decides the photos, price and SALE badge.
   const swatch = product.swatches[activeSwatch];
+  const [front, back] = swatch?.images.length ? swatch.images : product.images;
+  const badges = product.badges.filter((b) => b !== "sale" || !swatch || swatch.compareAtPrice !== null);
   const soldOut = product.stock <= 0;
   const swatchSoldOut = swatch ? swatch.stock <= 0 : soldOut;
   // The selected swatch may have its own price.
   const { price, compareAtPrice } = swatch ?? product;
-  const fromPrice = !swatch?.variantId && product.priceVaries;
+  const fromPrice = swatch ? !swatch.variantId && swatch.priceVaries : product.priceVaries;
   // Quick add needs one exact variant: the only one, or the one the swatch picks.
   // Otherwise (e.g. a T-shirt needing a size) the button opens the product page.
   const variantId = swatch?.variantId ?? product.quickAddVariantId;
@@ -100,12 +103,12 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         </Link>
 
         {/* Badges: SALE / LOW STOCK / NEW (or just "Sold out") */}
-        {(soldOut || product.badges.length > 0) && (
+        {(soldOut || badges.length > 0) && (
           <div className="absolute left-2.5 top-2.5 z-10 flex flex-col items-start gap-1">
             {soldOut ? (
               <Badge variant="outline">Sold out</Badge>
             ) : (
-              product.badges.map((b) => (
+              badges.map((b) => (
                 <Badge key={b} variant={b}>
                   {badgeLabel[b]}
                 </Badge>

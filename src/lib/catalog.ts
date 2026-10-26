@@ -103,6 +103,8 @@ type Item = {
   attrs: Attribute[];
   /** Lower-case text searched by the search box. */
   text: string;
+  /** Each buyable combination: its option values by filter name (lower case), e.g. { "frame-colour": "black", lens: "brown" }. */
+  variants: { optionIds: string[]; opts: Record<string, string>; stock: number }[];
 };
 
 function toItem(p: Prisma.ProductGetPayload<{ include: typeof itemInclude }>): Item {
@@ -150,6 +152,15 @@ function toItem(p: Prisma.ProductGetPayload<{ include: typeof itemInclude }>): I
     // A spec named "Brand" would clash with the brand filter, so the brand wins.
     attrs: attrs.filter((a) => a.kind === "brand" || a.key !== BRAND_KEY),
     text,
+    variants: p.variants.map((v) => {
+      const optionIds = [v.option1Id, v.option2Id, v.option3Id].filter((id): id is string => !!id);
+      const opts: Record<string, string> = {};
+      for (const id of optionIds) {
+        const o = p.optionValues.find((x) => x.id === id);
+        if (o) opts[filterKey(o.option)] = o.value.toLowerCase();
+      }
+      return { optionIds, opts, stock: v.stock };
+    }),
   };
 }
 
@@ -289,14 +300,44 @@ function filterGroups(items: Item[], scope: Scope): FilterGroup[] {
   return out.filter((g) => g.values.length > 1 || (g.values.length === 1 && g.values[0].count < items.length));
 }
 
+/**
+ * Does a product match the filters? Brand, specs and price are checked on the
+ * product. Options (Colour, Lens…) must all be met by ONE variant in stock:
+ * Black + Brown only matches if a Black / Brown variant can be bought.
+ */
 function matchesFilters(item: Item, f: Filters, known: Set<string>) {
   if (f.price && (item.price < f.price.min || (f.price.max !== null && item.price >= f.price.max))) return false;
+  return matchingVariants(item, f, known) !== null;
+}
+
+/**
+ * The product's variants that fit the option filters (all of them when no
+ * option is filtered), or null when the product doesn't match at all.
+ */
+function matchingVariants(item: Item, f: Filters, known: Set<string>) {
+  const options: [string, Set<string>][] = [];
   for (const [key, wanted] of Object.entries(f.attrs)) {
     if (!known.has(key)) continue; // e.g. a tracking param — not a filter on this page
     const want = new Set(wanted.map((w) => w.toLowerCase()));
-    if (!item.attrs.some((a) => a.key === key && want.has(a.value.toLowerCase()))) return false;
+    if (item.variants.some((v) => key in v.opts)) options.push([key, want]);
+    else if (!item.attrs.some((a) => a.key === key && want.has(a.value.toLowerCase()))) return null;
   }
-  return true;
+  if (options.length === 0) return item.variants;
+  // Filtering by an option means "I want to buy this", so only variants in stock count.
+  const fits = item.variants.filter((v) => v.stock > 0 && options.every(([key, want]) => want.has(v.opts[key])));
+  return fits.length ? fits : null;
+}
+
+/**
+ * Which colour a card opens on when options are filtered: the colour of the
+ * first matching variant (e.g. Lens = Brown → Tortoise, because Black / Brown
+ * is sold out). Undefined = the card's usual choice.
+ */
+function startSwatch(item: Item, f: Filters, known: Set<string>) {
+  if (!Object.keys(f.attrs).some((k) => known.has(k))) return undefined;
+  const best = matchingVariants(item, f, known)?.[0];
+  const i = best ? item.card.swatches.findIndex((s) => best.optionIds.includes(s.id)) : -1;
+  return i >= 0 ? i : undefined;
 }
 
 // ── Listing ─────────────────────────────────────────────────────
@@ -346,7 +387,7 @@ export async function getListing(scope: Scope, filters: Filters): Promise<Listin
   const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   const page = Math.min(filters.page, pages);
   return {
-    products: items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((i) => i.card),
+    products: items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((i) => ({ ...i.card, startSwatch: startSwatch(i, filters, known) })),
     total: items.length,
     page,
     pages,

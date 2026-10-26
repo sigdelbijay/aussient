@@ -1,18 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import Form from "next/form";
+import { useRouter } from "next/navigation";
 import { SlidersHorizontal } from "lucide-react";
 import { cn } from "cn";
-import { priceLabel, priceParam, SORTS, type Filters } from "@/lib/catalog-shared";
+import { priceLabel, priceParam, SORTS, type Filters, type Sort } from "@/lib/catalog-shared";
 import type { FilterGroup } from "@/lib/catalog";
 
 export const FILTER_FORM_ID = "shop-filters";
-
-/** Re-runs the search as soon as any filter changes (the Apply button covers no-JS). */
-function submitOnChange(e: React.FormEvent<HTMLFormElement>) {
-  e.currentTarget.requestSubmit();
-}
 
 /**
  * Filters for a product listing. A plain GET form: every choice lives in the
@@ -22,17 +17,36 @@ export function FilterForm({
   basePath,
   options,
   filters,
+  defaultSort,
   activeCount,
   keep,
 }: {
   basePath: string;
   options: FilterGroup[];
   filters: Filters;
+  /** The page's own order: not added to the URL. */
+  defaultSort: Sort;
   activeCount: number;
   /** Extra params to carry along, e.g. the search query. */
   keep?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  /**
+   * Re-runs the listing as soon as any filter changes. Only real choices go in
+   * the URL: no empty "Any price" and no sort when it's the page's default.
+   * (Without JavaScript the form still works as a normal GET form.)
+   */
+  function apply(form: HTMLFormElement) {
+    const sp = new URLSearchParams();
+    for (const [key, value] of new FormData(form)) {
+      if (typeof value !== "string" || value === "" || (key === "sort" && value === defaultSort)) continue;
+      sp.append(key, value);
+    }
+    const qs = sp.toString();
+    router.push(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+  }
   const price = filters.price ? priceParam(filters.price) : "";
   const groups = options.map((group) => {
     // Price: pick one range (radio). A range from a shared link that isn't offered here is still shown.
@@ -72,11 +86,14 @@ export function FilterForm({
   });
 
   return (
-    <Form
+    <form
       id={FILTER_FORM_ID}
       action={basePath}
-      scroll={false}
-      onChange={submitOnChange}
+      onChange={(e) => apply(e.currentTarget)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        apply(e.currentTarget);
+      }}
     >
       {Object.entries(keep ?? {}).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
@@ -110,7 +127,7 @@ export function FilterForm({
           Apply filters
         </button>
       </noscript>
-    </Form>
+    </form>
   );
 }
 
