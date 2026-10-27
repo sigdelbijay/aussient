@@ -11,6 +11,7 @@ import { addToBag } from "@/lib/bag-store";
 import { formatPrice } from "@/lib/format";
 import type { ProductCardData } from "@/lib/storefront";
 import { WishlistButton } from "@/components/wishlist-button";
+import { useOffers } from "@/components/offers-provider";
 
 const badgeLabel = {
   new: "New",
@@ -45,6 +46,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
   const swatch = product.swatches[activeSwatch];
   const [front, back] = swatch?.images.length ? swatch.images : product.images;
   const badges = product.badges.filter((b) => b !== "sale" || !swatch || swatch.compareAtPrice !== null);
+  // An automatic offer covering it (e.g. "Buy 3 get 1"); one is enough on a small card.
+  const offer = useOffers(product.id)[0]?.badge;
   const soldOut = product.stock <= 0;
   const swatchSoldOut = swatch ? swatch.stock <= 0 : soldOut;
   // The selected swatch may have its own price.
@@ -102,17 +105,23 @@ export function ProductCard({ product }: { product: ProductCardData }) {
           )}
         </Link>
 
-        {/* Badges: SALE / LOW STOCK / NEW (or just "Sold out") */}
-        {(soldOut || badges.length > 0) && (
+        {/* Badges: SALE / offer / LOW STOCK / NEW (or just "Sold out") */}
+        {(soldOut || badges.length > 0 || offer) && (
           <div className="absolute left-2.5 top-2.5 z-10 flex flex-col items-start gap-1">
             {soldOut ? (
               <Badge variant="outline">Sold out</Badge>
             ) : (
-              badges.map((b) => (
-                <Badge key={b} variant={b}>
-                  {badgeLabel[b]}
-                </Badge>
-              ))
+              <>
+                {badges.includes("sale") && <Badge variant="sale">{badgeLabel.sale}</Badge>}
+                {offer && <Badge variant="neutral">{offer}</Badge>}
+                {badges
+                  .filter((b) => b !== "sale")
+                  .map((b) => (
+                    <Badge key={b} variant={b}>
+                      {badgeLabel[b]}
+                    </Badge>
+                  ))}
+              </>
             )}
           </div>
         )}

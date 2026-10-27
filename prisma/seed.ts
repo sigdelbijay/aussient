@@ -525,7 +525,7 @@ async function seedStorefrontContent() {
     const messages = [
       "Free shipping on orders over $50",
       "New drops every week",
-      "Buy 3, get 1 free on earrings",
+      // "Buy 3, get 1 free on Earrings" comes from the automatic offer under Discounts.
       "Afterpay & Zip available",
       "30-day easy returns",
     ];

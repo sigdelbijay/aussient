@@ -1,4 +1,5 @@
 import "server-only";
+import { collectionProductIds } from "@/lib/catalog";
 import { prisma } from "@/lib/prisma";
 import { variantLabel } from "@/lib/product-types";
 import {
@@ -88,6 +89,8 @@ async function loadProducts(ids: string[]): Promise<PricingProduct[]> {
       slug: p.slug,
       name: p.name,
       live: p.status === "LIVE",
+      productTypeId: p.productTypeId,
+      brandId: p.brandId,
       categoryIds: [...new Set(p.categories.flatMap((c) => withParents(c.id)))],
       image,
       variants: p.variants.map((v) => {
@@ -117,9 +120,18 @@ async function loadDiscounts(code: string | null): Promise<PricingDiscount[]> {
     },
     include: { products: { select: { id: true } } },
   });
+  // A collection discount covers whatever is in the collection right now.
+  const inCollection = new Map(
+    await Promise.all(
+      [...new Set(rows.flatMap((d) => (d.scope === "COLLECTION" && d.collectionId ? [d.collectionId] : [])))].map(
+        async (cid) => [cid, await collectionProductIds(cid)] as const,
+      ),
+    ),
+  );
   return rows.map((d) => ({
     id: d.id,
     code: d.code,
+    title: d.title,
     type: d.type,
     scope: d.scope,
     value: d.value === null ? null : Number(d.value),
@@ -134,7 +146,10 @@ async function loadDiscounts(code: string | null): Promise<PricingDiscount[]> {
     firstOrderOnly: d.firstOrderOnly,
     active: d.active,
     categoryId: d.categoryId,
-    productIds: d.products.map((p) => p.id),
+    productTypeId: d.productTypeId,
+    brandId: d.brandId,
+    productIds:
+      d.scope === "COLLECTION" ? (d.collectionId ? (inCollection.get(d.collectionId) ?? []) : []) : d.products.map((p) => p.id),
   }));
 }
 

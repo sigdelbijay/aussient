@@ -34,7 +34,7 @@ export type CollectionValues = {
 };
 
 type Choice = { id: string; name: string };
-type ProductChoice = { id: string; name: string; image: string | null; live: boolean; type: string };
+export type ProductChoice = { id: string; name: string; image: string | null; live: boolean; type: string };
 
 /** "" → null, "20" → 20, "abc" → NaN (the server rejects it). */
 const amount = (text: string) => (text.trim() === "" ? null : Number(text));
@@ -185,7 +185,7 @@ export function CollectionForm({
 }
 
 /** Tick products to include; chosen ones are listed first. */
-function ProductPicker({ products, chosen, onChange }: { products: ProductChoice[]; chosen: string[]; onChange: (ids: string[]) => void }) {
+export function ProductPicker({ products, chosen, onChange }: { products: ProductChoice[]; chosen: string[]; onChange: (ids: string[]) => void }) {
   const [q, setQ] = useState("");
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = products

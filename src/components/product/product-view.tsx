@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WishlistButton } from "@/components/wishlist-button";
+import { useOffers } from "@/components/offers-provider";
 import { addToBag } from "@/lib/bag-store";
 import { LOW_STOCK, MAX_QTY } from "@/lib/catalog-shared";
 import { formatPrice } from "@/lib/format";
@@ -52,6 +53,7 @@ export function ProductView({
   }, [product.variants]);
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
+  const offers = useOffers(product.id);
 
   const slots = product.options.map((o) => o.slot);
   const matches = (v: Variant, choice: (string | null)[]) => slots.every((s) => v.optionIds[s] === choice[s]);
@@ -169,6 +171,15 @@ export function ProductView({
             <span className="font-semibold text-foreground">{formatPrice(Math.ceil(Math.round(pay * 100) / 4) / 100)}</span>{" "}
             with <span className="font-semibold text-foreground">Afterpay</span>
           </p>
+          {/* Automatic offers covering this product — taken off in the bag, no code needed. */}
+          {offers.map((o) => (
+            <p key={o.id} className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant="neutral">{o.badge}</Badge>
+              <span>
+                {o.text} <span className="text-muted-foreground">— applied in your bag</span>
+              </span>
+            </p>
+          ))}
         </div>
 
         {/* Options: colour swatches, size buttons, or a dropdown */}

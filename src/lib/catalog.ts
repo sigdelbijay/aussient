@@ -198,6 +198,13 @@ const getScopeItems = storefrontCache(
   { tags: [CACHE_TAGS.products] },
 );
 
+/** The ids of the live products in a collection right now (for collection discounts). */
+export async function collectionProductIds(collectionId: string): Promise<string[]> {
+  const c = await prisma.collection.findUnique({ where: { id: collectionId }, select: { slug: true } });
+  if (!c) return [];
+  return (await getScopeItems({ kind: "collection", slug: c.slug })).map((i) => i.card.id);
+}
+
 /** Live products (with at least one variant) matching every condition. */
 async function loadItems(and: Prisma.ProductWhereInput[]): Promise<Item[]> {
   const rows = await prisma.product.findMany({ where: { AND: [live, { variants: { some: {} } }, ...and] }, include: itemInclude });

@@ -1,21 +1,30 @@
 import { AnnouncementBar } from "@/components/announcement-bar";
+import { OffersProvider } from "@/components/offers-provider";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { BagPanel } from "@/components/bag/bag-panel";
+import { getLiveOffers } from "@/lib/offers";
 import { getLiveSiteChrome } from "@/lib/storefront";
 
 /** Storefront chrome: announcement bar, header, footer and the slide-out bag. */
 export default async function ShopLayout({ children }: LayoutProps<"/">) {
   // Announcement bar, menus and footer come from the database (cached; see src/lib/storefront.ts).
-  const chrome = await getLiveSiteChrome();
+  const [chrome, offers] = await Promise.all([getLiveSiteChrome(), getLiveOffers()]);
+  // Automatic offers (from Discounts) lead the bar, then the admin's announcements
+  // (skipping any that just repeat an offer word for word).
+  const offerTexts = new Set(offers.map((o) => o.text.toLowerCase()));
+  const announcements = [
+    ...offers.map((o) => ({ id: o.id, text: o.text, link: o.link })),
+    ...chrome.announcements.filter((a) => !offerTexts.has(a.text.toLowerCase())),
+  ];
 
   return (
-    <>
-      <AnnouncementBar items={chrome.announcements} />
+    <OffersProvider offers={offers.map((o) => ({ id: o.id, badge: o.badge, text: o.text, productIds: o.productIds }))}>
+      <AnnouncementBar items={announcements} />
       <SiteHeader menu={chrome.headerMenu} storeName={chrome.settings.storeName} />
       <main className="flex-1">{children}</main>
       <SiteFooter settings={chrome.settings} menu={chrome.footerMenu} />
       <BagPanel />
-    </>
+    </OffersProvider>
   );
 }

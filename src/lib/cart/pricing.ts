@@ -1,4 +1,11 @@
 import { MAX_QTY } from "@/lib/catalog-shared";
+import {
+  describeDiscount,
+  discountCovers,
+  type DiscountableProduct,
+  type DiscountScope,
+  type DiscountType,
+} from "@/lib/discounts";
 import { formatPrice } from "@/lib/format";
 
 /**
@@ -18,14 +25,11 @@ import { formatPrice } from "@/lib/format";
  */
 export type BagItem = { productId: string; variantId: string | null; qty: number };
 
-export type PricingProduct = {
-  id: string;
+export type PricingProduct = DiscountableProduct & {
   slug: string;
   name: string;
   /** False when the product has been taken off sale (DRAFT). */
   live: boolean;
-  /** Its categories and every category above them (for category discounts). */
-  categoryIds: string[];
   image: string | null;
   /** Every buyable combination — always at least one. Works the same for any product type. */
   variants: {
@@ -43,8 +47,10 @@ export type PricingDiscount = {
   id: string;
   /** null = automatic offer (no code needed). */
   code: string | null;
-  type: "PERCENT" | "AMOUNT" | "FREE_SHIPPING" | "BUY_X_GET_Y";
-  scope: "ALL" | "CATEGORY" | "PRODUCTS";
+  /** Shopper-facing name, e.g. "Buy 3 tees, get 1 free". */
+  title: string | null;
+  type: DiscountType;
+  scope: DiscountScope;
   value: number | null;
   buyQuantity: number | null;
   getQuantity: number | null;
@@ -57,6 +63,9 @@ export type PricingDiscount = {
   firstOrderOnly: boolean;
   active: boolean;
   categoryId: string | null;
+  productTypeId: string | null;
+  brandId: string | null;
+  /** For PRODUCTS: the chosen products. For COLLECTION: the products in it right now. */
   productIds: string[];
 };
 
@@ -152,23 +161,12 @@ export function tidyItems(items: BagItem[]): BagItem[] {
   return [...merged.values()];
 }
 
+/** "WELCOME10 · 10% off" for codes; the title (or "Buy 3, get 1 free") for automatic offers. */
 function label(d: PricingDiscount) {
-  const what = (() => {
-    switch (d.type) {
-      case "PERCENT":
-        return `${d.value ?? 0}% off`;
-      case "AMOUNT":
-        return `${formatPrice(d.value ?? 0)} off`;
-      case "FREE_SHIPPING":
-        return "Free shipping";
-      case "BUY_X_GET_Y":
-        return `Buy ${d.buyQuantity ?? 1}, get ${d.getQuantity ?? 1} free`;
-    }
-  })();
-  return d.code ? `${d.code} · ${what}` : what;
+  return d.code ? `${d.code} · ${describeDiscount(d)}` : (d.title ?? describeDiscount(d));
 }
 
-type Counted = { productId: string; categoryIds: string[]; unitCents: number; qty: number };
+type Counted = { product: PricingProduct; unitCents: number; qty: number };
 
 /** Works out a discount on the counted lines, or says why it can't be used. */
 function evaluate(
@@ -194,13 +192,8 @@ function evaluate(
     return { error: `Spend ${formatPrice(d.minSpend)} or more to use this code.` };
   }
 
-  const eligible = lines.filter((l) =>
-    d.scope === "CATEGORY"
-      ? d.categoryId !== null && l.categoryIds.includes(d.categoryId)
-      : d.scope === "PRODUCTS"
-        ? d.productIds.includes(l.productId)
-        : true,
-  );
+  // Only items the discount covers count (buy X get Y can mix any of them, e.g. any 3 T-shirts).
+  const eligible = lines.filter((l) => discountCovers(d, l.product));
   if (eligible.length === 0) return { error: "This code doesn't apply to the items in your bag." };
   const eligibleCents = eligible.reduce((n, l) => n + l.unitCents * l.qty, 0);
 
@@ -286,8 +279,7 @@ export function priceBag(input: PricingInput): Totals {
   const counted: Counted[] = lines
     .filter((l) => l.issue === null || l.issue === "reduced")
     .map((l) => ({
-      productId: l.productId,
-      categoryIds: products.get(l.productId)!.categoryIds,
+      product: products.get(l.productId)!,
       unitCents: cents(l.unitPrice),
       qty: l.qty,
     }));

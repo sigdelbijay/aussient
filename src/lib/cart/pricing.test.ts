@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { MAX_QTY } from "@/lib/catalog-shared";
+import { discountStatus } from "@/lib/discounts";
 import { priceBag, tidyItems, type PricingDiscount, type PricingInput, type PricingProduct } from "./pricing";
 
 // Run with: pnpm test
@@ -28,6 +29,8 @@ function product(
     name: id,
     live: true,
     categoryIds: ["earrings"],
+    productTypeId: "earring",
+    brandId: null,
     image: null,
     variants: [{ id: `${id}-v`, label: null, price, salePrice, stock, image: null }],
     ...overrides,
@@ -47,6 +50,7 @@ function discount(overrides: Partial<PricingDiscount>): PricingDiscount {
   return {
     id: overrides.code ?? "auto",
     code: null,
+    title: null,
     type: "PERCENT",
     scope: "ALL",
     value: null,
@@ -61,6 +65,8 @@ function discount(overrides: Partial<PricingDiscount>): PricingDiscount {
     firstOrderOnly: false,
     active: true,
     categoryId: null,
+    productTypeId: null,
+    brandId: null,
     productIds: [],
     ...overrides,
   };
@@ -304,6 +310,80 @@ describe("priceBag", () => {
     );
     assert.equal(t.discount?.amount, 8);
     assert.equal(t.total, 7.95, "items are free; shipping still applies");
+  });
+
+  it("applies a discount to one product type, one brand, a collection or chosen products", () => {
+    const products = [
+      product("tee", { price: 40, productTypeId: "t-shirt", brandId: "salt" }),
+      product("watch", { price: 100, productTypeId: "watch", brandId: "tide" }),
+    ];
+    const items = [
+      { productId: "tee", variantId: null, qty: 1 },
+      { productId: "watch", variantId: null, qty: 1 },
+    ];
+    const off = (d: Partial<PricingDiscount>) => priceBag(bag({ items, products, discounts: [discount({ value: 10, ...d })] })).discount?.amount;
+
+    assert.equal(off({ scope: "PRODUCT_TYPE", productTypeId: "t-shirt" }), 4, "10% off the $40 tee");
+    assert.equal(off({ scope: "BRAND", brandId: "tide" }), 10, "10% off the $100 watch");
+    // calculateTotals fills productIds with what's in the collection right now.
+    assert.equal(off({ scope: "COLLECTION", productIds: ["watch"] }), 10);
+    assert.equal(off({ scope: "PRODUCTS", productIds: ["tee", "watch"] }), 14);
+    assert.equal(off({ scope: "BRAND", brandId: null }), undefined, "a deleted brand covers nothing");
+  });
+
+  it("buy 3 get 1 free mixes any items in the group (any 3 T-shirts), not others", () => {
+    const t = priceBag(
+      bag({
+        items: [
+          { productId: "crew", variantId: "crew-m", qty: 1 },
+          { productId: "crew", variantId: "crew-l", qty: 1 },
+          { productId: "vneck", variantId: null, qty: 1 },
+          { productId: "pocket", variantId: null, qty: 1 },
+          { productId: "cap", variantId: null, qty: 1 },
+        ],
+        products: [
+          product("crew", { productTypeId: "t-shirt", variants: [variant("crew-m", "M", 35), variant("crew-l", "L", 35)] }),
+          product("vneck", { price: 30, productTypeId: "t-shirt" }),
+          product("pocket", { price: 25, productTypeId: "t-shirt" }),
+          product("cap", { price: 10, productTypeId: "cap" }),
+        ],
+        discounts: [discount({ type: "BUY_X_GET_Y", scope: "PRODUCT_TYPE", productTypeId: "t-shirt", buyQuantity: 3, getQuantity: 1, title: "Any 4 tees, cheapest free" })],
+      }),
+    );
+    assert.equal(t.discount?.amount, 25, "the cheapest tee is free, not the $10 cap");
+    assert.equal(t.discount?.label, "Any 4 tees, cheapest free", "automatic offers show their title");
+  });
+
+  it("buy X get Y says how many more items are needed", () => {
+    const t = priceBag(
+      bag({
+        items: [{ productId: "a", variantId: null, qty: 2 }],
+        products: [product("a")],
+        discounts: [discount({ code: "B3G1", type: "BUY_X_GET_Y", buyQuantity: 3, getQuantity: 1 })],
+        code: "B3G1",
+      }),
+    );
+    assert.match(t.code!.error!, /Add 2 more eligible items/);
+  });
+
+  it("waits for a code's start date and ignores switched-off offers", () => {
+    const items = [{ productId: "a", variantId: null, qty: 1 }];
+    const products = [product("a", { price: 20 })];
+    const soon = priceBag(bag({ items, products, discounts: [discount({ code: "SOON", value: 10, startsAt: new Date("2026-11-01") })], code: "SOON" }));
+    assert.match(soon.code!.error!, /isn't active yet/);
+    const off = priceBag(bag({ items, products, discounts: [discount({ value: 50, active: false })] }));
+    assert.equal(off.discount, null);
+  });
+});
+
+describe("discountStatus", () => {
+  const base = { active: true, startsAt: null, endsAt: null, usageLimit: null, timesUsed: 0 };
+  it("is scheduled, active, expired, used up or off", () => {
+    assert.equal(discountStatus(base, NOW), "active");
+    assert.equal(discountStatus({ ...base, startsAt: new Date("2026-12-01") }, NOW), "scheduled");
+    assert.equal(discountStatus({ ...base, endsAt: new Date("2026-10-01") }, NOW), "expired");
+    assert.equal(discountStatus({ ...base, usageLimit: 3, timesUsed: 3 }, NOW), "used-up");
+    assert.equal(discountStatus({ ...base, active: false }, NOW), "off");
   });
 });
 

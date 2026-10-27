@@ -38,7 +38,10 @@ enum DiscountType {
 
 enum DiscountScope {
   ALL // whole store
-  CATEGORY // one category
+  CATEGORY // one category (and the ones inside it)
+  PRODUCT_TYPE // every product of one type, e.g. T-shirts
+  BRAND // one brand
+  COLLECTION // the products in one collection
   PRODUCTS // hand-picked products
 }
 
@@ -128,6 +131,7 @@ model ProductType {
   sizeGuide         SizeGuide?   @relation(fields: [sizeGuideId], references: [id], onDelete: SetNull)
   products          Product[]
   collectionsByRule Collection[]
+  discounts         Discount[]
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 }
@@ -141,6 +145,7 @@ model Brand {
   description       String? // shown at the top of /brands/[slug]
   products          Product[]
   collectionsByRule Collection[]
+  discounts         Discount[]
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 }
@@ -282,6 +287,7 @@ model Collection {
   ruleOnSale        Boolean        @default(false)
   rulePriceUnder    Decimal?       @db.Decimal(10, 2) // price shoppers pay is below this
   rulePriceOver     Decimal?       @db.Decimal(10, 2) // …or above this
+  discounts         Discount[]
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 }
@@ -290,6 +296,7 @@ model Collection {
 model Discount {
   id               String        @id @default(cuid())
   code             String?       @unique // null = automatic offer (no code)
+  title            String? // shown to shoppers, e.g. "Buy 3 tees, get 1 free" (announcement bar, bag)
   type             DiscountType
   scope            DiscountScope @default(ALL)
   value            Decimal?      @db.Decimal(10, 2) // percent or dollar amount
@@ -305,6 +312,12 @@ model Discount {
   active           Boolean       @default(true)
   categoryId       String? // when scope = CATEGORY
   category         Category?     @relation(fields: [categoryId], references: [id])
+  productTypeId    String? // when scope = PRODUCT_TYPE
+  productType      ProductType?  @relation(fields: [productTypeId], references: [id], onDelete: SetNull)
+  brandId          String? // when scope = BRAND
+  brand            Brand?        @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  collectionId     String? // when scope = COLLECTION
+  collection       Collection?   @relation(fields: [collectionId], references: [id], onDelete: SetNull)
   products         Product[]     @relation("DiscountProducts") // when scope = PRODUCTS
   orders           Order[]
   createdAt        DateTime      @default(now())
@@ -313,26 +326,28 @@ model Discount {
 
 /// A placed order: human-friendly number (AUS-1001), totals, status and Stripe link.
 model Order {
-  id              String      @id @default(cuid())
-  number          String      @unique // e.g. AUS-1001
-  userId          String? // null for guest checkout
-  user            User?       @relation(fields: [userId], references: [id])
-  email           String
-  name            String
-  phone           String?
-  shippingAddress Json // snapshot of the delivery address at checkout
-  items           OrderItem[]
-  subtotal        Decimal     @db.Decimal(10, 2)
-  discountTotal   Decimal     @default(0) @db.Decimal(10, 2)
-  shippingTotal   Decimal     @default(0) @db.Decimal(10, 2)
-  total           Decimal     @db.Decimal(10, 2)
-  discountId      String?
-  discount        Discount?   @relation(fields: [discountId], references: [id])
-  status          OrderStatus @default(PAID)
-  trackingNumber  String?
-  stripeSessionId String?     @unique
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id                String      @id @default(cuid())
+  number            String      @unique // e.g. AUS-1001
+  userId            String? // null for guest checkout
+  user              User?       @relation(fields: [userId], references: [id])
+  email             String
+  name              String
+  phone             String?
+  shippingAddress   Json // snapshot of the delivery address at checkout
+  items             OrderItem[]
+  subtotal          Decimal     @db.Decimal(10, 2)
+  discountTotal     Decimal     @default(0) @db.Decimal(10, 2)
+  shippingTotal     Decimal     @default(0) @db.Decimal(10, 2)
+  total             Decimal     @db.Decimal(10, 2)
+  discountId        String?
+  discount          Discount?   @relation(fields: [discountId], references: [id])
+  /// When this paid order was added to its discount's "times used" (so it's never counted twice).
+  discountCountedAt DateTime?
+  status            OrderStatus @default(PAID)
+  trackingNumber    String?
+  stripeSessionId   String?     @unique
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@index([userId])
 }
