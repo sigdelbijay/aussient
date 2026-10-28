@@ -30,6 +30,13 @@ export default function SignupPage() {
             maxLength={72}
             hint="At least 8 characters."
           />
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="checkbox" name="marketing" className="mt-0.5 size-4 shrink-0 accent-foreground" />
+            <span>
+              Email me news, offers and a reminder if I leave something in my bag. You can
+              unsubscribe any time.
+            </span>
+          </label>
         </ActionForm>
       </div>
       <p className="mt-8 text-center text-sm text-muted-foreground">

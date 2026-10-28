@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/auth/crypto";
 import { verifyTotp } from "@/lib/auth/totp";
 import { lockoutMinutesLeft, recordLoginAttempt } from "@/lib/auth/rate-limit";
+import { sendWelcomeEmail } from "@/lib/welcome-email";
 
 /**
  * Auth.js setup.
@@ -142,6 +143,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   events: {
+    // A brand-new account made by signing in with Google (password sign-ups get theirs after confirming their email).
+    async createUser({ user }) {
+      if (user.email) await sendWelcomeEmail({ email: user.email, name: user.name ?? null });
+    },
     async linkAccount({ user }) {
       // Google proves ownership of the email. If the account was created with a
       // password but never confirmed, that password may have been set by someone

@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { setMarketingConsent } from "@/lib/marketing";
 
 export type NewsletterState = { ok?: boolean; error?: string } | undefined;
 
@@ -17,10 +17,7 @@ export async function subscribeAction(
     .safeParse(formData.get("email"));
   if (!email.success) return { error: "Enter a valid email address." };
 
-  await prisma.newsletterSubscriber.upsert({
-    where: { email: email.data },
-    update: { unsubscribedAt: null },
-    create: { email: email.data },
-  });
+  // Also ticks "email me news and offers" on their account, if they have one.
+  await setMarketingConsent(email.data, true);
   return { ok: true };
 }

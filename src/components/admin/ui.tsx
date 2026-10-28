@@ -109,11 +109,11 @@ export function StatusPill({ status }: { status: string }) {
   );
 }
 
-/** Horizontally scrollable table wrapper so wide tables don't break phones. */
-export function TableWrap({ children }: { children: React.ReactNode }) {
+/** Horizontally scrollable table wrapper so wide tables don't break phones. `narrow` tables fit a phone without scrolling. */
+export function TableWrap({ children, narrow = false }: { children: React.ReactNode; narrow?: boolean }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-background">
-      <table className="w-full min-w-[40rem] text-left text-sm [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-2.5 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_thead]:border-b [&_thead]:border-border [&_tbody_tr]:border-b [&_tbody_tr]:border-border [&_tbody_tr:last-child]:border-0">
+      <table className={cn("w-full text-left", narrow ? "min-w-0" : "min-w-[40rem]", "text-sm [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-2.5 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_thead]:border-b [&_thead]:border-border [&_tbody_tr]:border-b [&_tbody_tr]:border-border [&_tbody_tr:last-child]:border-0")}>
         {children}
       </table>
     </div>

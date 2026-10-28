@@ -75,8 +75,9 @@ async function writeAccount(userId: string, bag: StoredBag) {
   await prisma.$transaction(async (tx) => {
     const cart = await tx.cart.upsert({
       where: { userId },
-      create: { userId, discountCode: bag.code },
-      update: { discountCode: bag.code },
+      // activityAt: when they last changed the bag (the "left in your bag" reminder goes 2 hours after).
+      create: { userId, discountCode: bag.code, activityAt: new Date() },
+      update: { discountCode: bag.code, activityAt: new Date() },
     });
     await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
     if (bag.items.length) {

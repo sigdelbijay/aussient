@@ -92,7 +92,7 @@ export function AdminSidebar({
   return (
     <>
       {/* Phones: top bar with a menu button */}
-      <div className="sticky top-0 z-40 flex items-center justify-between bg-brand-ink px-4 py-3 text-brand-paper lg:hidden">
+      <div className="sticky top-0 z-40 flex items-center justify-between bg-brand-ink px-4 py-3 text-brand-paper lg:hidden print:hidden">
         <Link href="/admin" className="font-heading font-extrabold">
           AUSSIENT <span className="font-normal opacity-60">Admin</span>
         </Link>
@@ -109,7 +109,7 @@ export function AdminSidebar({
       {open && <div className="fixed inset-x-0 top-[3.75rem] bottom-0 z-40 overflow-y-auto bg-brand-ink lg:hidden">{nav}</div>}
 
       {/* Desktop: fixed sidebar */}
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col bg-brand-ink lg:flex">
+      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col bg-brand-ink lg:flex print:hidden">
         <Link href="/admin" className="px-6 py-5 font-heading text-lg font-extrabold text-brand-paper">
           AUSSIENT <span className="font-normal opacity-60">Admin</span>
         </Link>

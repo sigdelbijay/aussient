@@ -127,11 +127,28 @@ Changing a page's **web address** after publishing is safe: the old address redi
 
 ## Shipping an order
 
-1. Go to **Orders** and click the **To ship** tab. These orders are paid and waiting to be sent.
-2. For each order, pick the items and pack them. Check the variant (for example the colour or size) against the order.
-3. Book the parcel with your courier and keep the tracking number.
+1. Go to **Orders**. The **To ship** tab lists paid orders waiting to be sent, oldest at the bottom. The number beside **Orders** in the menu shows how many there are.
+2. Click **Packing lists** to print one sheet per order: the delivery address, and each item with its options (for example *Size: M / Colour: Navy*), SKU and quantity, plus a box to tick as you pack it. Each order page also has its own **Packing list** button.
+3. Pack the parcel and book it with your courier.
+4. Open the order and type the **Tracking number**. If you can, paste the courier's **tracking link** too: the email then gets a **Track my parcel** button.
+5. Click **Mark as shipped & email customer**. The order moves to **Shipped** and the customer gets the **Order shipped** email.
 
-> **Coming soon:** online checkout and order management are the next part of the build. They'll add an order page with a **Mark as shipped** button, where you paste the tracking number. That moves the order to **Shipped** and emails the customer their tracking link, using the **Order shipped** email under Site Content → Emails. Until then, the Orders page is a read-only list.
+Typed the tracking number wrong? Fix it on the order and click **Save tracking details**. Leave **Email the customer the new details** ticked to send them the corrected one.
+
+**Finding an order:** search by order number (for example `1042` or `AUS-1042`), email address or name. The tabs filter by status.
+
+**Delivery spreadsheet:** **Export CSV** downloads the orders you're looking at (same search and tab), one row per item, with the address, SKU, options and totals. Use **To ship → Export CSV** for everything waiting to go out.
+
+**Cancelling and refunding (admins only)**
+- **Cancel order** is for an order that hasn't shipped. It refunds the full amount to the customer's card through Stripe, puts the items back in stock and emails the customer.
+- **Refund** is for any paid or shipped order, for example after a return. It refunds the full amount through Stripe and emails a refund confirmation. Tick **Put the items back in stock** if the items came back in good condition.
+- Both ask you to confirm first, and can't be undone. If Stripe refuses, nothing changes and the page says why.
+- Refunds take 5–10 business days to reach the customer's card.
+- To refund only part of an order, use the Stripe dashboard for now.
+
+**Emails sent for you**
+- **The customer** gets an order confirmation as soon as they pay. It's a tax invoice: items, total, the GST included, and your ABN.
+- **You** get a "New order" email for every order. Choose where it goes under **Settings → Order alerts**; leave it blank to send it to every admin.
 
 ---
 
@@ -144,15 +161,20 @@ Changing a page's **web address** after publishing is safe: the old address redi
 
 **Announcement bar:** short scrolling messages at the top of every page. Each can have a link and its own start and end dates.
 
+**Automatic emails:** every 15 minutes the shop checks for two things:
+- **Back in stock:** anyone who pressed **Notify me** on something that's back gets one email.
+- **Left in your bag:** signed-in customers who left items in their bag for 2 hours get one reminder. It only goes to customers who ticked **Email me news and offers** when signing up or on their account page. The email has an **Unsubscribe** link, as Australian spam law requires.
+
 **Pop-ups:** a newsletter signup or a sale message that appears a few seconds after someone arrives. Each visitor sees it once.
 
 **Redirects:** send an old link to a new one, for example after you rename something or move from another website. Product and page renames add these for you.
 
-**Emails:** change the subject line and opening words of the emails the shop sends. Words in {curly brackets}, like {store}, are filled in automatically. **Use the original text** puts the wording back to how it was.
+**Emails:** change the subject line and opening words of the emails the shop sends: confirm email, welcome, password reset, staff invite, order confirmation, new order (to you), shipped, cancelled, refund, back in stock, and "left in your bag". Words in {curly brackets}, like {store}, are filled in automatically. **Use the original text** puts the wording back to how it was.
 
 **Settings** (admins only):
 - store name, logo and brand colour;
-- contact email, phone and ABN, shown in the footer;
+- contact email, phone and ABN, shown in the footer (the ABN also goes on order confirmations);
+- where "New order" emails go;
 - social media links;
 - shipping prices: standard, express, and the free-shipping amount;
 - the footer's perks and newsletter text;

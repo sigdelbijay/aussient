@@ -30,6 +30,7 @@ export default async function SettingsPage() {
           tagline: s?.tagline ?? "",
           metaDescription: s?.metaDescription ?? "",
           supportEmail: s?.supportEmail ?? "",
+          orderAlertEmail: s?.orderAlertEmail ?? "",
           contactPhone: s?.contactPhone ?? "",
           abn: s?.abn ?? "",
           accentColor: s?.accentColor ?? "",

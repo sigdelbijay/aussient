@@ -21,9 +21,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   ]);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-muted/40 lg:flex-row">
+    <div className="flex min-h-dvh flex-col bg-muted/40 lg:flex-row print:bg-white">
       <AdminSidebar email={user.email} isAdmin={user.role === "ADMIN"} badges={{ "/admin/orders": toShip, "/admin/reviews": pendingReviews }} />
-      <main className="min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8">{children}</main>
+      <main className="min-w-0 flex-1 px-4 py-6 sm:px-8 sm:py-8 print:p-0">{children}</main>
     </div>
   );
 }

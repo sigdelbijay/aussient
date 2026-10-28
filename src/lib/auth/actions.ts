@@ -7,6 +7,7 @@ import { z } from "zod";
 import { signIn, signOut, isStaffRole } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { emailText, sendActionEmail, siteUrl } from "@/lib/email";
+import { setMarketingConsent } from "@/lib/marketing";
 import { decrypt } from "@/lib/auth/crypto";
 import { verifyTotp } from "@/lib/auth/totp";
 import { requireUser } from "@/lib/auth/dal";
@@ -53,12 +54,13 @@ const signupSchema = z.object({
   name: z.string().trim().min(1, "Enter your name").max(100),
   email: emailField,
   password: passwordField,
+  marketing: z.string().optional(), // the "email me news and offers" tick box (unticked = no)
 });
 
 export async function signupAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const parsed = signupSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const { name, email, password } = parsed.data;
+  const { name, email, password, marketing } = parsed.data;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -70,6 +72,7 @@ export async function signupAction(_prev: FormState, formData: FormData): Promis
     const user = await prisma.user.create({
       data: { name, email, passwordHash: await bcrypt.hash(password, 12), role: "CUSTOMER" },
     });
+    if (marketing === "on") await setMarketingConsent(email, true);
     await sendVerificationEmail(user.id, email);
   }
   return {

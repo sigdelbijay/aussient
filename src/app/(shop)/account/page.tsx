@@ -18,6 +18,7 @@ import {
   removeFromWishlistAction,
   setDefaultAddressAction,
   updateDetailsAction,
+  updateMarketingAction,
 } from "./actions";
 
 export const metadata: Metadata = { title: "My account" };
@@ -184,6 +185,26 @@ export default async function AccountPage() {
             </ActionForm>
           </Section>
         </div>
+
+        {/* Marketing consent */}
+        <Section title="Emails from us">
+          <ActionForm action={updateMarketingAction} submitLabel="Save" keepOnSuccess>
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                name="marketing"
+                defaultChecked={user.marketingOptIn}
+                className="mt-0.5 size-4 shrink-0 accent-foreground"
+              />
+              <span>
+                Email me news, offers and a reminder if I leave something in my bag.
+                <span className="block text-xs text-muted-foreground">
+                  Order confirmations and shipping updates always come, whatever you choose.
+                </span>
+              </span>
+            </label>
+          </ActionForm>
+        </Section>
 
         {/* Addresses */}
         <Section title="Saved addresses">

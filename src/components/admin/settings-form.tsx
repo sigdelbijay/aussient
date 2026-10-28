@@ -17,6 +17,7 @@ export type SettingsValues = {
   tagline: string;
   metaDescription: string;
   supportEmail: string;
+  orderAlertEmail: string;
   contactPhone: string;
   abn: string;
   accentColor: string;
@@ -87,10 +88,16 @@ export function SettingsForm({
             <AdminField label="Phone" error={err("contactPhone")}>
               <input name="contactPhone" type="tel" defaultValue={values.contactPhone} maxLength={30} className={inputClass} />
             </AdminField>
-            <AdminField label="ABN" error={err("abn")} hint="11 digits">
+            <AdminField label="ABN" error={err("abn")} hint="11 digits — also printed on order confirmations (tax invoices)">
               <input name="abn" defaultValue={values.abn} maxLength={20} inputMode="numeric" className={inputClass} />
             </AdminField>
           </div>
+        </Panel>
+
+        <Panel title="Order alerts" description="Who gets an email for every new order. Not shown to shoppers.">
+          <AdminField label="Send new-order emails to" error={err("orderAlertEmail")} hint="Leave blank to send them to every admin." className="max-w-md">
+            <input name="orderAlertEmail" type="email" defaultValue={values.orderAlertEmail} maxLength={120} className={inputClass} />
+          </AdminField>
         </Panel>
 
         <Panel title="Social links" description="Full links, e.g. https://instagram.com/aussient. Blank ones are hidden.">

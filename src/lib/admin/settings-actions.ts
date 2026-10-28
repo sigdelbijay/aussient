@@ -36,6 +36,7 @@ const settingsSchema = z.object({
   tagline: optionalText(80),
   metaDescription: optionalText(170),
   supportEmail: z.preprocess((v) => (v === "" ? null : v), z.email("Enter an email address").max(120).nullable()),
+  orderAlertEmail: z.preprocess((v) => (v === "" ? null : v), z.email("Enter an email address").max(120).nullable()),
   contactPhone: optionalText(30).refine((v) => v === null || /^[\d\s()+-]{6,30}$/.test(v), "Enter a phone number like 02 9000 0000"),
   abn: optionalText(20)
     .transform((v) => (v === null ? null : v.replace(/\s/g, "").replace(/^(\d{2})(\d{3})(\d{3})(\d{3})$/, "$1 $2 $3 $4")))

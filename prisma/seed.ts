@@ -827,12 +827,19 @@ async function seedStorefrontContent() {
         shippingTotal: shipping,
         total: unitPrice + shipping,
         status: "SHIPPED",
+        shippedAt: new Date(),
+        trackingNumber: "SAMPLE123",
+        // A sample: its emails count as already sent.
+        confirmationSentAt: new Date(),
+        adminNotifiedAt: new Date(),
         items: {
           create: {
             productId: product.id,
             variantId: variant?.id,
             name: product.name,
             variantName: "Silver",
+            sku: variant?.sku,
+            options: [{ name: "Finish", value: "Silver" }],
             unitPrice,
             quantity: 1,
             lineTotal: unitPrice,

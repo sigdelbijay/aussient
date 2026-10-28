@@ -6,6 +6,7 @@ import { z } from "zod";
 import { signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/dal";
+import { setMarketingConsent } from "@/lib/marketing";
 import type { FormState } from "@/lib/auth/actions";
 
 // Every action re-checks the signed-in user and only touches *their* rows.
@@ -20,6 +21,15 @@ export async function updateDetailsAction(
   await prisma.user.update({ where: { id: user.id }, data: { name: name.data } });
   revalidatePath("/account");
   return { message: "Details saved." };
+}
+
+/** The "email me news and offers" switch. */
+export async function updateMarketingAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await requireUser();
+  const yes = formData.get("marketing") === "on";
+  await setMarketingConsent(user.email, yes);
+  revalidatePath("/account");
+  return { message: yes ? "You're subscribed to news and offers." : "You won't get marketing emails from us. Order emails still come as usual." };
 }
 
 const passwordSchema = z
