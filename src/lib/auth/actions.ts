@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { signIn, signOut, isStaffRole } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { sendActionEmail, siteUrl } from "@/lib/email";
+import { emailText, sendActionEmail, siteUrl } from "@/lib/email";
 import { decrypt } from "@/lib/auth/crypto";
 import { verifyTotp } from "@/lib/auth/totp";
 import { requireUser } from "@/lib/auth/dal";
@@ -36,11 +36,12 @@ function safeCallback(url: FormDataEntryValue | null, fallback = "/account") {
 
 async function sendVerificationEmail(userId: string, email: string) {
   const token = await createAuthToken(userId, "EMAIL_VERIFY", EMAIL_VERIFY_MINUTES);
+  // Subject and text are editable under Site Content → Emails.
+  const text = await emailText("verify-email");
   await sendActionEmail({
     to: email,
-    subject: "Confirm your Aussient account",
+    ...text,
     heading: "Confirm your email",
-    body: "Thanks for joining Aussient! Tap below to confirm your email address. This link expires in 24 hours.",
     buttonLabel: "Confirm email",
     url: siteUrl(`/verify-email?token=${token}`),
   });
@@ -155,9 +156,8 @@ export async function forgotPasswordAction(
     const token = await createAuthToken(user.id, "PASSWORD_RESET", PASSWORD_RESET_MINUTES);
     await sendActionEmail({
       to: user.email,
-      subject: "Reset your Aussient password",
+      ...(await emailText("password-reset")),
       heading: "Reset your password",
-      body: `Tap below to choose a new password. This link expires in ${PASSWORD_RESET_MINUTES} minutes and can only be used once.`,
       buttonLabel: "Reset password",
       url: siteUrl(`/reset-password?token=${token}`),
     });

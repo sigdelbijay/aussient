@@ -10,6 +10,7 @@ import { cloudinaryConfig, MEDIA_FOLDER, signParams } from "./cloudinary";
 import { diff, recordChange } from "./activity";
 import { checkbox, fieldErrors, money, optionalMoney, optionalText, wholeNumber, type AdminFormState } from "./form";
 import { slugify, uniqueSlug } from "./slug";
+import { addRedirect } from "@/lib/redirects";
 
 /**
  * Admin product actions: details, duplicate, photos. (Options and variants are
@@ -142,6 +143,8 @@ export async function saveProductAction(_prev: AdminFormState, formData: FormDat
       categories: { set: categoryIds.map((cid) => ({ id: cid })) },
     },
   });
+  // Old links to the product (emails, social posts, Google) keep working.
+  if (slug !== before.slug) await addRedirect(`/products/${before.slug}`, `/products/${slug}`);
   const changes = diff(
     { ...before, specs: JSON.stringify(readSpecs(before.specs)), tags: before.tags.join(", "), categories: before.categories.map((c) => c.id).sort().join() },
     { ...data, slug, specs: JSON.stringify(specs), tags: data.tags.join(", "), categories: [...categoryIds].sort().join() },
@@ -151,10 +154,10 @@ export async function saveProductAction(_prev: AdminFormState, formData: FormDat
       action: "product.update",
       entity: "Product",
       entityId: productId,
-      detail: { name: data.name, changes },
-    });
+      detail: { name: data.name, changes, ...(slug !== before.slug && { redirect: `/products/${before.slug} → /products/${slug}` }) },
+    }, { refresh: slug !== before.slug ? ["products", "content"] : ["products"] });
   }
-  return { message: "Product saved." };
+  return { message: slug !== before.slug ? `Product saved. The old link /products/${before.slug} now redirects here.` : "Product saved." };
 }
 
 export async function duplicateProductAction(productId: string) {

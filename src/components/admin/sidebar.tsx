@@ -8,9 +8,11 @@ import {
   FolderTree,
   Gauge,
   History,
+  Home,
   Image as ImageIcon,
   Layers,
   Menu,
+  Newspaper,
   Package,
   Percent,
   Ruler,
@@ -19,6 +21,7 @@ import {
   ShoppingCart,
   Star,
   Tag,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "cn";
@@ -36,7 +39,10 @@ const NAV = [
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/reviews", label: "Reviews", icon: Star },
   { href: "/admin/content", label: "Site Content", icon: FileText },
+  { href: "/admin/content/home", label: "Home page", icon: Home, sub: true },
+  { href: "/admin/content/pages", label: "Pages", icon: Newspaper, sub: true },
   { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
+  { href: "/admin/staff", label: "Staff", icon: Users, adminOnly: true },
   { href: "/admin/activity", label: "Activity log", icon: History },
 ];
 
@@ -52,7 +58,10 @@ export function AdminSidebar({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const active = (href: string) => (href === "/admin" ? pathname === href : pathname.startsWith(href));
+  // The most specific matching entry is highlighted (e.g. "Home page", not also "Site Content").
+  const matches = NAV.filter((i) => (i.href === "/admin" ? pathname === i.href : pathname === i.href || pathname.startsWith(`${i.href}/`)));
+  const current = matches.sort((a, b) => b.href.length - a.href.length)[0]?.href;
+  const active = (href: string) => href === current;
 
   const nav = (
     <nav className="grid gap-0.5 p-3" aria-label="Admin">

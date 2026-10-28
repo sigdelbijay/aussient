@@ -1,7 +1,7 @@
 import { cache, Fragment } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirectOrNotFound } from "@/lib/redirects";
 import { ChevronDown } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
 import { ScrollRow } from "@/components/home/scroll-row";
@@ -45,8 +45,10 @@ export async function generateMetadata({ params }: PageProps<"/products/[slug]">
 }
 
 export default async function ProductPage({ params }: PageProps<"/products/[slug]">) {
-  const product = await loadProduct((await params).slug);
-  if (!product) notFound();
+  const { slug } = await params;
+  const product = await loadProduct(slug);
+  // An old product link (e.g. before it was renamed) goes to the new one.
+  if (!product) return redirectOrNotFound(`/products/${slug}`);
 
   const look = product.completeTheLook;
   const [related, chrome] = await Promise.all([

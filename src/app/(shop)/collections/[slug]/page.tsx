@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { redirectOrNotFound } from "@/lib/redirects";
 import { listingMetadata, ListingPageView } from "@/components/shop/listing-page";
 import { getListingPage, type ListingPage } from "@/lib/catalog";
 
@@ -23,6 +23,6 @@ export async function generateMetadata({ params, searchParams }: PageProps<"/col
 export default async function CollectionPage({ params, searchParams }: PageProps<"/collections/[slug]">) {
   const { slug } = await params;
   const page = await load(slug);
-  if (!page) notFound();
+  if (!page) return redirectOrNotFound(`/collections/${slug}`);
   return <ListingPageView page={page} path={`/collections/${slug}`} params={await searchParams} />;
 }

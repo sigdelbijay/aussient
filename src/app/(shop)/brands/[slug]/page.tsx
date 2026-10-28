@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { redirectOrNotFound } from "@/lib/redirects";
 import { listingMetadata, ListingPageView } from "@/components/shop/listing-page";
 import { getBrandPage } from "@/lib/catalog";
 
@@ -14,6 +14,6 @@ export async function generateMetadata({ params, searchParams }: PageProps<"/bra
 export default async function BrandPage({ params, searchParams }: PageProps<"/brands/[slug]">) {
   const { slug } = await params;
   const page = await getBrandPage(slug);
-  if (!page) notFound();
+  if (!page) return redirectOrNotFound(`/brands/${slug}`);
   return <ListingPageView page={page} path={`/brands/${slug}`} params={await searchParams} />;
 }

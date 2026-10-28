@@ -4,6 +4,11 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/cache";
 import { LOW_STOCK } from "@/lib/catalog-shared";
+import { fromShopInput } from "@/lib/admin/dates";
+import type { DocKey, MenuLinkDoc } from "@/lib/content/docs";
+import { isPreview, previewDoc } from "@/lib/content/preview";
+import { cleanRichText, type RichDoc } from "@/lib/content/rich-text";
+import { loadPublished, type DocOf } from "@/lib/content/store";
 
 /**
  * Cached reads for the public storefront (layout chrome + home page).
@@ -19,7 +24,7 @@ import { LOW_STOCK } from "@/lib/catalog-shared";
 
 // The data cache outlives deploys, so bump this whenever the shape of cached
 // data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
-const CACHE_VERSION = 8;
+const CACHE_VERSION = 9;
 
 export const storefrontCache: typeof unstable_cache =
   process.env.NODE_ENV === "development"
@@ -55,16 +60,33 @@ export async function rebuildAtNextChange(items: Scheduled[], now = Date.now()) 
   await unstable_cache(async () => next, ["schedule", String(next)], { revalidate: seconds })();
 }
 
-// ── Site chrome: settings, announcement bar, menus ──────────────
+// ── Site chrome: settings, announcement bar, menus, pop-ups ─────
 
 export type MenuLink = { id: string; label: string; url: string; image: string | null; children?: MenuLink[] };
 export type MenuGroup = MenuLink & { children: MenuLink[] };
 
+export type PopupData = Scheduled & {
+  id: string;
+  kind: "newsletter" | "sale";
+  title: string | null;
+  body: string | null;
+  image: string | null;
+  buttonLabel: string | null;
+  buttonLink: string | null;
+  delaySeconds: number;
+};
+
 export type SiteChrome = {
   settings: {
     storeName: string;
+    logo: string | null;
+    /** Brand accent colour (#rrggbb), or null for the built-in pink. */
+    accentColor: string | null;
     tagline: string | null;
     metaDescription: string | null;
+    supportEmail: string | null;
+    contactPhone: string | null;
+    abn: string | null;
     deliveryInfo: string | null;
     returnsInfo: string | null;
     newsletterHeading: string;
@@ -72,100 +94,143 @@ export type SiteChrome = {
     footerPerks: string[];
     freeShippingThreshold: number | null;
     flatShippingRate: number | null;
-    socials: Partial<Record<"instagram" | "tiktok" | "youtube" | "threads", string>>;
+    expressShippingRate: number | null;
+    socials: Partial<Record<"instagram" | "tiktok" | "youtube" | "threads" | "facebook" | "pinterest", string>>;
   };
   announcements: (Scheduled & { id: string; text: string; link: string | null })[];
   headerMenu: MenuGroup[];
   footerMenu: MenuGroup[];
+  popups: PopupData[];
 };
 
-async function loadMenu(location: "header" | "footer"): Promise<MenuGroup[]> {
-  const items = await prisma.menuItem.findMany({
-    where: { location, parentId: null },
-    orderBy: { order: "asc" },
-    include: { children: { orderBy: { order: "asc" } } },
-  });
-  const pick = (m: { id: string; label: string; url: string; image: string | null }) => ({
-    id: m.id,
-    label: m.label,
-    url: m.url,
-    image: m.image,
-  });
-  return items.map((m) => ({ ...pick(m), children: m.children.map(pick) }));
+const isoOf = (shopTime: string) => fromShopInput(shopTime)?.toISOString() ?? null;
+
+/** Reads a content document: the published one, or (in Preview) the draft. */
+function contentDoc<K extends DocKey>(key: K, preview: boolean): Promise<DocOf<K> | null> {
+  return preview ? previewDoc(key) : loadPublished(key);
 }
 
 /**
- * The header menu: one entry per top-level category (its sub-categories, and
- * theirs, fill the mega menu, with the category's picture), followed by any
- * extra header links set up in the admin menu (e.g. New In, Sale).
+ * Turns the menu document into links. Links that point at a category,
+ * collection, brand or page get its current web address (so renaming one never
+ * breaks the menu); ones whose target was deleted are left out. A header link
+ * to a category also lists its sub-categories in the mega menu.
  */
-async function loadHeaderMenu(): Promise<MenuGroup[]> {
-  const [categories, extras] = await Promise.all([
+async function resolveMenus(header: MenuLinkDoc[], footer: MenuLinkDoc[], preview: boolean) {
+  const [categories, collections, brands, pages] = await Promise.all([
     prisma.category.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
       select: { id: true, name: true, slug: true, image: true, parentId: true },
     }),
-    loadMenu("header"),
+    prisma.collection.findMany({ select: { id: true, slug: true } }),
+    prisma.brand.findMany({ select: { id: true, slug: true } }),
+    prisma.page.findMany({ select: { id: true, slug: true, published: true } }),
   ]);
-  const link = (c: (typeof categories)[number]): MenuLink => ({
-    id: c.id,
-    label: c.name,
-    url: `/collections/${c.slug}`,
-    image: c.image,
-  });
+  const byId = <T extends { id: string }>(rows: T[]) => new Map(rows.map((r) => [r.id, r]));
+  const cats = byId(categories);
+  const cols = byId(collections);
+  const brs = byId(brands);
+  const pgs = byId(pages);
+
+  const urlOf = (l: Omit<MenuLinkDoc, "children">): string | null => {
+    switch (l.linkType) {
+      case "url":
+        return l.url || "#";
+      case "category": {
+        const c = cats.get(l.targetId);
+        return c ? `/collections/${c.slug}` : null;
+      }
+      case "collection": {
+        const c = cols.get(l.targetId);
+        return c ? `/collections/${c.slug}` : null;
+      }
+      case "brand": {
+        const b = brs.get(l.targetId);
+        return b ? `/brands/${b.slug}` : null;
+      }
+      case "page": {
+        const p = pgs.get(l.targetId);
+        return p && (p.published || preview) ? `/pages/${p.slug}` : null;
+      }
+    }
+  };
+  const one = (l: Omit<MenuLinkDoc, "children">): MenuLink | null => {
+    const url = urlOf(l);
+    return url ? { id: l.id, label: l.label, url, image: l.image || null } : null;
+  };
+  const many = (links: Omit<MenuLinkDoc, "children">[]) => links.map(one).filter((l): l is MenuLink => l !== null);
+
   const childrenOf = (id: string) => categories.filter((c) => c.parentId === id);
-  const tree = categories
-    .filter((c) => c.parentId === null)
-    .map((top) => ({
-      ...link(top),
-      children: childrenOf(top.id).map((mid) => ({ ...link(mid), children: childrenOf(mid.id).map(link) })),
-    }));
-  // A menu item pointing at a category page is already covered by the tree.
-  const categoryUrls = new Set(categories.map((c) => `/collections/${c.slug}`));
-  return [...tree, ...extras.filter((m) => !categoryUrls.has(m.url))];
+  const catLink = (c: (typeof categories)[number]): MenuLink => ({ id: c.id, label: c.name, url: `/collections/${c.slug}`, image: c.image });
+
+  const headerMenu = header.flatMap((l): MenuGroup[] => {
+    const top = one(l);
+    if (!top) return [];
+    const category = l.linkType === "category" ? cats.get(l.targetId) : undefined;
+    const subTree = category ? childrenOf(category.id).map((mid) => ({ ...catLink(mid), children: childrenOf(mid.id).map(catLink) })) : [];
+    return [{ ...top, image: top.image ?? category?.image ?? null, children: [...subTree, ...many(l.children)] }];
+  });
+  const footerMenu = footer.flatMap((l): MenuGroup[] => {
+    const top = one(l);
+    return top ? [{ ...top, children: many(l.children) }] : [];
+  });
+  return { headerMenu, footerMenu };
+}
+
+/** Builds the chrome from the database; `preview` uses drafts instead of what's published. */
+async function loadSiteChrome(preview: boolean): Promise<SiteChrome> {
+  const [settings, announcements, menu, popups] = await Promise.all([
+    prisma.siteSettings.findUnique({ where: { id: "singleton" } }),
+    contentDoc("announcements", preview),
+    contentDoc("menu", preview),
+    contentDoc("popups", preview),
+  ]);
+  const num = (d: { toString(): string } | null | undefined) => (d == null ? null : Number(d));
+  return {
+    settings: {
+      storeName: settings?.storeName ?? "Aussient",
+      logo: settings?.logo ?? null,
+      accentColor: settings?.accentColor ?? null,
+      tagline: settings?.tagline ?? null,
+      metaDescription: settings?.metaDescription ?? null,
+      supportEmail: settings?.supportEmail ?? null,
+      contactPhone: settings?.contactPhone ?? null,
+      abn: settings?.abn ?? null,
+      deliveryInfo: settings?.deliveryInfo ?? null,
+      returnsInfo: settings?.returnsInfo ?? null,
+      newsletterHeading: settings?.newsletterHeading ?? "Join the list",
+      newsletterText: settings?.newsletterText ?? "",
+      footerPerks: Array.isArray(settings?.footerPerks) ? (settings.footerPerks as string[]) : [],
+      freeShippingThreshold: num(settings?.freeShippingThreshold),
+      flatShippingRate: num(settings?.flatShippingRate),
+      expressShippingRate: num(settings?.expressShippingRate),
+      socials: (settings?.socials as SiteChrome["settings"]["socials"]) ?? {},
+    },
+    announcements: (announcements?.items ?? [])
+      .filter((a) => a.active && a.text)
+      .map((a) => ({ id: a.id, text: a.text, link: a.link || null, startsAt: isoOf(a.startsAt), endsAt: isoOf(a.endsAt) })),
+    ...(await resolveMenus(menu?.header ?? [], menu?.footer ?? [], preview)),
+    popups: (popups?.items ?? [])
+      .filter((p) => p.active)
+      .map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        title: p.title || null,
+        body: p.body || null,
+        image: p.image || null,
+        buttonLabel: p.buttonLabel || null,
+        buttonLink: p.buttonLink || null,
+        delaySeconds: p.delaySeconds,
+        startsAt: isoOf(p.startsAt),
+        endsAt: isoOf(p.endsAt),
+      })),
+  };
 }
 
 export const getSiteChrome = storefrontCache(
-  async (): Promise<SiteChrome> => {
-    const [settings, banners, headerMenu, footerMenu] = await Promise.all([
-      prisma.siteSettings.findUnique({ where: { id: "singleton" } }),
-      prisma.banner.findMany({
-        where: { placement: "announcement", active: true },
-        orderBy: { order: "asc" },
-      }),
-      loadHeaderMenu(),
-      loadMenu("footer"),
-    ]);
-    return {
-      settings: {
-        storeName: settings?.storeName ?? "Aussient",
-        tagline: settings?.tagline ?? null,
-        metaDescription: settings?.metaDescription ?? null,
-        deliveryInfo: settings?.deliveryInfo ?? null,
-        returnsInfo: settings?.returnsInfo ?? null,
-        newsletterHeading: settings?.newsletterHeading ?? "Join the list",
-        newsletterText: settings?.newsletterText ?? "",
-        footerPerks: Array.isArray(settings?.footerPerks) ? (settings.footerPerks as string[]) : [],
-        freeShippingThreshold:
-          settings?.freeShippingThreshold == null ? null : Number(settings.freeShippingThreshold),
-        flatShippingRate: settings?.flatShippingRate == null ? null : Number(settings.flatShippingRate),
-        socials: (settings?.socials as SiteChrome["settings"]["socials"]) ?? {},
-      },
-      announcements: banners
-        .filter((b) => b.title)
-        .map((b) => ({
-          id: b.id,
-          text: b.title!,
-          link: b.link,
-          startsAt: b.startsAt?.toISOString() ?? null,
-          endsAt: b.endsAt?.toISOString() ?? null,
-        })),
-      headerMenu,
-      footerMenu,
-    };
-  },
+  () => loadSiteChrome(false),
   ["site-chrome"],
-  // Categories (the header menu) are cleared with products.
+  // Categories, collections and brands (menu links) are cleared with products.
   { tags: [CACHE_TAGS.content, CACHE_TAGS.products] },
 );
 
@@ -178,24 +243,60 @@ export type HomeSectionRow = Scheduled & {
   config: unknown;
 };
 
-/** All switched-on sections in admin order, including ones scheduled for later. */
-export const getHomeSections = storefrontCache(
-  async (): Promise<HomeSectionRow[]> => {
-    const rows = await prisma.homeSection.findMany({
-      where: { active: true },
-      orderBy: { order: "asc" },
-    });
-    return rows.map((r) => ({
+/** Switched-on sections in admin order, including ones scheduled for later. */
+async function loadHomeSections(preview: boolean): Promise<HomeSectionRow[]> {
+  const doc = await contentDoc("home", preview);
+  return (doc?.sections ?? [])
+    .filter((r) => r.active)
+    .map((r) => ({
       id: r.id,
       type: r.type,
-      title: r.title,
+      title: r.title || null,
       config: r.config,
-      startsAt: r.startsAt?.toISOString() ?? null,
-      endsAt: r.endsAt?.toISOString() ?? null,
+      startsAt: isoOf(r.startsAt),
+      endsAt: isoOf(r.endsAt),
     }));
+}
+
+export const getHomeSections = storefrontCache(() => loadHomeSections(false), ["home-sections"], { tags: [CACHE_TAGS.content] });
+
+// ── Pages (About, FAQ, …) ───────────────────────────────────────
+
+export type ShopPage = { id: string; slug: string; title: string; content: RichDoc; seoTitle: string | null; seoDescription: string | null };
+
+export const getPublishedPage = storefrontCache(
+  async (slug: string): Promise<ShopPage | null> => {
+    const p = await prisma.page.findFirst({ where: { slug, published: true } });
+    if (!p) return null;
+    return { id: p.id, slug: p.slug, title: p.title, content: cleanRichText(p.content) ?? { type: "doc", content: [] }, seoTitle: p.seoTitle, seoDescription: p.seoDescription };
   },
-  ["home-sections"],
+  ["page"],
   { tags: [CACHE_TAGS.content] },
+);
+
+/** A page by its web address. In Preview, drafts count too (including unpublished pages). */
+export async function getLivePage(slug: string): Promise<ShopPage | null> {
+  if (!(await isPreview())) return getPublishedPage(slug);
+  for (const p of await prisma.page.findMany({ select: { id: true } })) {
+    const doc = await previewDoc(`page:${p.id}`);
+    if (doc?.slug === slug) {
+      return { id: p.id, slug, title: doc.title, content: cleanRichText(doc.content) ?? { type: "doc", content: [] }, seoTitle: doc.seoTitle || null, seoDescription: doc.seoDescription || null };
+    }
+  }
+  return null;
+}
+
+// ── Redirects ───────────────────────────────────────────────────
+
+/** Every redirect as { "/old-path": "/new-path" }. */
+export const getRedirects = storefrontCache(
+  async (): Promise<Record<string, string>> => {
+    const rows = await prisma.redirect.findMany({ select: { from: true, to: true } });
+    return Object.fromEntries(rows.map((r) => [r.from, r.to]));
+  },
+  ["redirects"],
+  // Products add redirects when their web address changes.
+  { tags: [CACHE_TAGS.content, CACHE_TAGS.products] },
 );
 
 // ── Products ────────────────────────────────────────────────────
@@ -392,18 +493,24 @@ export const getApprovedReviews = storefrontCache(
 
 // ── What's showing right now ────────────────────────────────────
 
-/** Site chrome with only the announcements that are live now. */
-export async function getLiveSiteChrome(): Promise<SiteChrome> {
+/** Site chrome with only the announcements and pop-ups that are live now (drafts in Preview). */
+export async function getLiveSiteChrome(): Promise<SiteChrome & { preview: boolean }> {
   const now = Date.now();
-  const chrome = await getSiteChrome();
-  await rebuildAtNextChange(chrome.announcements, now);
-  return { ...chrome, announcements: chrome.announcements.filter((a) => isLive(a, now)) };
+  const preview = await isPreview();
+  const chrome = preview ? await loadSiteChrome(true) : await getSiteChrome();
+  await rebuildAtNextChange([...chrome.announcements, ...chrome.popups], now);
+  return {
+    ...chrome,
+    preview,
+    announcements: chrome.announcements.filter((a) => isLive(a, now)),
+    popups: chrome.popups.filter((p) => isLive(p, now)),
+  };
 }
 
-/** Home sections that are switched on and within their start/end dates now. */
+/** Home sections that are switched on and within their start/end dates now (drafts in Preview). */
 export async function getLiveHomeSections(): Promise<HomeSectionRow[]> {
   const now = Date.now();
-  const rows = await getHomeSections();
+  const rows = (await isPreview()) ? await loadHomeSections(true) : await getHomeSections();
   await rebuildAtNextChange(rows, now);
   return rows.filter((row) => isLive(row, now));
 }

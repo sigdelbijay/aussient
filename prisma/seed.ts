@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client";
 import type { SpecField } from "../src/lib/product-types";
+import { rt } from "../src/lib/content/rich-text";
 
 // Seeds connect over the DIRECT connection (port 5432), same as migrations.
 const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
@@ -537,38 +538,63 @@ async function seedStorefrontContent() {
   // ── Header menu ─────────────────────────────────────────────
   // Top-level categories (and their sub-categories) fill the menu automatically;
   // these are extra links shown after them.
+  // Header: a link per top-level category (its sub-categories fill the drop-down), then New In and Sale.
   if ((await prisma.menuItem.count({ where: { location: "header" } })) === 0) {
+    const tops = await prisma.category.findMany({ where: { parentId: null }, orderBy: [{ order: "asc" }, { name: "asc" }] });
     await prisma.menuItem.createMany({
       data: [
-        { label: "New In", url: "/new-in", location: "header", order: 0 },
-        { label: "Sale", url: "/sale", location: "header", order: 1 },
+        ...tops.map((c, order) => ({ label: c.name, linkType: "category", targetId: c.id, url: "#", location: "header", order })),
+        { label: "New In", url: "/new-in", location: "header", order: tops.length },
+        { label: "Sale", url: "/sale", location: "header", order: tops.length + 1 },
       ],
     });
   }
 
+  // ── Pages (About, FAQ, Shipping…) ───────────────────────────
+  const pageIds = await seedPages();
+
   // ── Footer menu (each top-level item is a column) ───────────
+  // The first sample footer linked to /help/… and /policies/… addresses that
+  // didn't exist. Those links now point at the pages, and the old addresses redirect.
+  const OLD_LINKS: Record<string, string> = {
+    "/help/contact": "contact",
+    "/help/shipping": "shipping",
+    "/help/returns": "returns",
+    "/help/faqs": "faq",
+    "/policies/terms": "terms",
+    "/policies/privacy": "privacy",
+    "/policies/refunds": "returns",
+    "/policies/accessibility": "accessibility",
+    "/about": "about",
+  };
+  for (const [from, slug] of Object.entries(OLD_LINKS)) {
+    await prisma.redirect.upsert({ where: { from }, update: {}, create: { from, to: `/pages/${slug}` } });
+    await prisma.menuItem.updateMany({ where: { linkType: "url", url: from }, data: { linkType: "page", targetId: pageIds[slug], url: "#" } });
+  }
+  // Order tracking lives in the account area.
+  await prisma.menuItem.updateMany({ where: { linkType: "url", url: "/help/tracking" }, data: { url: "/account" } });
+
   if ((await prisma.menuItem.count({ where: { location: "footer" } })) === 0) {
     const footer = [
       {
         label: "Help",
         links: [
-          ["Contact Us", "/help/contact"],
-          ["Shipping", "/help/shipping"],
-          ["Returns & Exchanges", "/help/returns"],
-          ["Order Tracking", "/help/tracking"],
-          ["FAQs", "/help/faqs"],
+          ["Contact Us", "contact"],
+          ["Shipping", "shipping"],
+          ["Returns & Exchanges", "returns"],
+          ["Order Tracking", null],
+          ["FAQs", "faq"],
         ],
       },
       {
         label: "Legal",
         links: [
-          ["Terms of Service", "/policies/terms"],
-          ["Privacy Policy", "/policies/privacy"],
-          ["Refund Policy", "/policies/refunds"],
-          ["Accessibility", "/policies/accessibility"],
+          ["Terms of Service", "terms"],
+          ["Privacy Policy", "privacy"],
+          ["Accessibility", "accessibility"],
         ],
       },
-    ];
+    ] as const;
     for (const [order, col] of footer.entries()) {
       await prisma.menuItem.create({
         data: {
@@ -577,9 +603,9 @@ async function seedStorefrontContent() {
           location: "footer",
           order,
           children: {
-            create: col.links.map(([label, url], i) => ({
+            create: col.links.map(([label, slug], i) => ({
               label,
-              url,
+              ...(slug ? { linkType: "page", targetId: pageIds[slug], url: "#" } : { url: "/account" }),
               location: "footer",
               order: i,
             })),
@@ -653,7 +679,7 @@ async function seedStorefrontContent() {
           image: img("Made for every day", "c9a961", "1000x1250"),
           heading: "Made for every day",
           body: "Clothing, watches and accessories picked to mix, match and last — at prices that let you build the whole look.",
-          button: { label: "Our story", href: "/about" },
+          button: { label: "Our story", href: "/pages/about" },
           imageSide: "left",
         },
       },
@@ -820,6 +846,96 @@ async function seedStorefrontContent() {
   console.log(
     "✓ Storefront content ready (settings, announcement bar, menus, home sections, reviews)",
   );
+}
+
+/**
+ * Starter information pages, published, so the footer links work from day one.
+ * Edit them in Admin → Site Content → Pages. Existing pages are never touched.
+ * Returns each page's id by its web address.
+ */
+async function seedPages(): Promise<Record<string, string>> {
+  const settings = await prisma.siteSettings.findUnique({ where: { id: "singleton" } });
+  const email = settings?.supportEmail ?? "hello@aussient.com.au";
+  const pages = [
+    {
+      slug: "about",
+      title: "About us",
+      content: rt.doc(
+        rt.p("Aussient is an Australian online store for on-trend clothing, watches, jewellery and accessories — picked for quality, priced for real life."),
+        rt.h2("What we're about"),
+        rt.list("New drops every week", "Free shipping over $50", "30-day easy returns", "Friendly support from real people"),
+      ),
+    },
+    {
+      slug: "faq",
+      title: "FAQs",
+      content: rt.doc(
+        rt.h2("When will my order arrive?"),
+        rt.p("Orders placed before 2pm (AEST) on a weekday ship the same day. Standard delivery takes 2–6 business days. See ", rt.link("Shipping", "/pages/shipping"), " for more."),
+        rt.h2("Can I return something?"),
+        rt.p("Yes — unworn, unused items can be returned within 30 days. See ", rt.link("Returns", "/pages/returns"), "."),
+        rt.h2("How do I pay?"),
+        rt.p("We take Visa, Mastercard, American Express, PayPal, Afterpay and Zip. Prices are in Australian dollars and include GST."),
+      ),
+    },
+    {
+      slug: "shipping",
+      title: "Shipping",
+      content: rt.doc(
+        rt.p(rt.bold("Free standard shipping on orders over $50."), " Otherwise it's a flat $7.95 Australia-wide."),
+        rt.list("Orders placed before 2pm (AEST) on a weekday ship the same day", "Standard delivery: 2–6 business days", "You'll get a tracking link by email as soon as it ships"),
+      ),
+    },
+    {
+      slug: "returns",
+      title: "Returns & exchanges",
+      content: rt.doc(
+        rt.p("Changed your mind? Return unworn, unused items with their tags within 30 days of delivery for a refund or exchange."),
+        rt.list("Earrings can't be returned for hygiene reasons unless they're faulty", "Returns are free with the prepaid label in your parcel", "Refunds go back to your original payment method within 5 business days of us receiving the return"),
+        rt.p("Questions? Email ", rt.link(email, `mailto:${email}`), "."),
+      ),
+    },
+    {
+      slug: "privacy",
+      title: "Privacy policy",
+      content: rt.doc(
+        rt.p("We collect only what we need to process your orders and, if you sign up, send you our newsletter. We never sell your details."),
+        rt.h2("What we collect"),
+        rt.list("Your name, email, phone and address, to deliver your order", "Your order history, so you can see it in your account", "Your email address for the newsletter, only if you sign up"),
+        rt.p("Payments are handled by our payment provider; we never see or store your card number. To see or delete your information, email ", rt.link(email, `mailto:${email}`), "."),
+      ),
+    },
+    {
+      slug: "terms",
+      title: "Terms of service",
+      content: rt.doc(
+        rt.p("By shopping with us you agree to these terms. Prices are in Australian dollars and include GST. We may correct pricing errors and cancel affected orders with a full refund."),
+        rt.p("Nothing in these terms limits your rights under the Australian Consumer Law."),
+      ),
+    },
+    {
+      slug: "contact",
+      title: "Contact us",
+      content: rt.doc(
+        rt.p("We're here to help, Monday to Friday, 9am–5pm (AEST)."),
+        rt.p("Email: ", rt.link(email, `mailto:${email}`)),
+        rt.p("We usually reply within one business day."),
+      ),
+    },
+    {
+      slug: "accessibility",
+      title: "Accessibility",
+      content: rt.doc(
+        rt.p("We want everyone to be able to shop with us. If anything on the site is hard to use, please email ", rt.link(email, `mailto:${email}`), " and we'll help — and fix it."),
+      ),
+    },
+  ];
+  const ids: Record<string, string> = {};
+  for (const p of pages) {
+    const page = await prisma.page.upsert({ where: { slug: p.slug }, update: {}, create: { ...p, published: true } });
+    ids[p.slug] = page.id;
+  }
+  return ids;
 }
 
 main()

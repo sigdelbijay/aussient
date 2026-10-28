@@ -48,6 +48,7 @@ enum DiscountScope {
 enum AuthTokenType {
   EMAIL_VERIFY
   PASSWORD_RESET
+  STAFF_INVITE // "set your password" link emailed to new staff
 }
 
 enum CollectionType {
@@ -82,16 +83,17 @@ model User {
   // Bumped on password change/reset so older login sessions stop working.
   sessionVersion Int @default(0)
 
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  accounts     Account[]
-  authTokens   AuthToken[]
-  orders       Order[]
-  addresses    Address[]
-  wishlist     Wishlist[]
-  reviews      Review[]
-  activityLogs ActivityLog[]
-  cart         Cart?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  accounts        Account[]
+  authTokens      AuthToken[]
+  orders          Order[]
+  addresses       Address[]
+  wishlist        Wishlist[]
+  reviews         Review[]
+  activityLogs    ActivityLog[]
+  cart            Cart?
+  contentVersions ContentVersion[]
 }
 
 // ── Catalogue ────────────────────────────────────────────────
@@ -531,16 +533,21 @@ model ActivityLog {
   @@index([userId])
 }
 
-// ── Admin-editable content (used in Prompt 10) ───────────────
+// ── Admin-editable content (/admin/content) ──────────────────
 
 /// Single row of global store settings the admin can edit.
 model SiteSettings {
   id                    String   @id @default("singleton")
   storeName             String   @default("Aussient")
+  logo                  String? // image shown in the header instead of the store name
   supportEmail          String?
+  contactPhone          String?
+  abn                   String? // Australian Business Number, shown in the footer
+  accentColor           String? // brand accent colour as #rrggbb (buttons, badges, highlights)
   currency              String   @default("AUD")
   freeShippingThreshold Decimal? @db.Decimal(10, 2)
-  flatShippingRate      Decimal? @db.Decimal(10, 2)
+  flatShippingRate      Decimal? @db.Decimal(10, 2) // standard shipping
+  expressShippingRate   Decimal? @db.Decimal(10, 2) // blank = no express option
   socials               Json? // { instagram, tiktok, youtube, threads } → URLs
   newsletterHeading     String?
   newsletterText        String?
@@ -570,11 +577,15 @@ model Banner {
 }
 
 /// Editable navigation links (supports nesting via parent/children).
+/// A link points at a category, collection, brand or page (followed if its web
+/// address changes), or at a custom URL.
 model MenuItem {
   id        String     @id @default(cuid())
   label     String
-  url       String
-  image     String? // picture shown in the header mega menu
+  linkType  String     @default("url") // url | category | collection | brand | page
+  targetId  String? // the category/collection/brand/page id (linkType other than url)
+  url       String // the custom URL (linkType url); "#" for the others, whose address is looked up when shown
+  image     String? // promo picture for this column of the header mega menu
   location  String     @default("header") // header | footer
   order     Int        @default(0)
   parentId  String?
@@ -603,7 +614,7 @@ model Page {
   id             String   @id @default(cuid())
   slug           String   @unique
   title          String
-  body           String?
+  content        Json? // rich text from the admin editor (Tiptap document)
   published      Boolean  @default(false)
   seoTitle       String?
   seoDescription String?
@@ -613,15 +624,20 @@ model Page {
 
 /// Timed modal popups (e.g. newsletter / sale announcement).
 model Popup {
-  id        String    @id @default(cuid())
-  title     String?
-  body      String?
-  image     String?
-  active    Boolean   @default(false)
-  startsAt  DateTime?
-  endsAt    DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id           String    @id @default(cuid())
+  kind         String    @default("sale") // newsletter (with an email signup) | sale
+  title        String?
+  body         String?
+  image        String?
+  buttonLabel  String?
+  buttonLink   String?
+  delaySeconds Int       @default(5) // how long after the page opens it appears
+  order        Int       @default(0)
+  active       Boolean   @default(false)
+  startsAt     DateTime?
+  endsAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 /// URL redirects (old path → new path) managed by the admin.
@@ -636,8 +652,28 @@ model Redirect {
 /// Editable transactional email templates, keyed by purpose.
 model EmailTemplate {
   id        String   @id @default(cuid())
-  key       String   @unique // e.g. "order-confirmation"
+  key       String   @unique // e.g. "order-confirmation" (see src/lib/email-templates.ts)
   subject   String
-  body      String
+  body      String // the opening text
   updatedAt DateTime @updatedAt
+}
+
+/// Unpublished changes to shop content, seen only in Preview until published.
+model ContentDraft {
+  key         String   @id // "home" | "menu" | "announcements" | "popups" | "page:<id>"
+  data        Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+/// What each piece of content looked like after each publish (the last few are kept), so a change can be undone.
+model ContentVersion {
+  id        String   @id @default(cuid())
+  key       String // as ContentDraft, plus "settings"
+  data      Json
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }

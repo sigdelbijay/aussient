@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { AtSign, Camera, Hash, Headphones, Play, RefreshCw, Sparkles, Truck } from "lucide-react";
+import { AtSign, Camera, Hash, Headphones, Mail, Phone, Pin, Play, RefreshCw, Sparkles, ThumbsUp, Truck } from "lucide-react";
 import { NewsletterForm } from "@/components/newsletter-form";
 import type { SiteChrome } from "@/lib/storefront";
 
+// The icon set has no brand logos, so each network gets a simple stand-in icon.
 const socialIcons = [
   { key: "instagram", label: "Instagram", icon: Camera },
   { key: "tiktok", label: "TikTok", icon: Hash },
+  { key: "facebook", label: "Facebook", icon: ThumbsUp },
   { key: "youtube", label: "YouTube", icon: Play },
+  { key: "pinterest", label: "Pinterest", icon: Pin },
   { key: "threads", label: "Threads", icon: AtSign },
 ] as const;
 
@@ -56,6 +59,24 @@ export function SiteFooter({
             <p className="max-w-sm text-sm text-brand-paper/70">{settings.newsletterText}</p>
           )}
           <NewsletterForm />
+          {(settings.supportEmail || settings.contactPhone) && (
+            <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-brand-paper/80">
+              {settings.supportEmail && (
+                <li>
+                  <a href={`mailto:${settings.supportEmail}`} className="flex items-center gap-2 hover:text-brand-accent">
+                    <Mail className="size-4" /> {settings.supportEmail}
+                  </a>
+                </li>
+              )}
+              {settings.contactPhone && (
+                <li>
+                  <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`} className="flex items-center gap-2 hover:text-brand-accent">
+                    <Phone className="size-4" /> {settings.contactPhone}
+                  </a>
+                </li>
+              )}
+            </ul>
+          )}
           <div className="mt-2 flex gap-2">
             {socials.map(({ label, icon: Icon, href }) => (
               <a
@@ -99,6 +120,7 @@ export function SiteFooter({
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 sm:flex-row">
           <p className="text-xs text-brand-paper/50">
             © {new Date().getFullYear()} {settings.storeName}. All rights reserved.
+            {settings.abn && <> · ABN {settings.abn}</>}
           </p>
           <ul className="flex flex-wrap items-center gap-2">
             {payments.map((p) => (

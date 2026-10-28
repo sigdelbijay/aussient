@@ -19,6 +19,8 @@ const errorMessages: Record<string, string> = {
 function noticeFor(params: Record<string, string | string[] | undefined>) {
   if (params.verified)
     return { tone: "success", text: "Email confirmed — you can log in now." } as const;
+  if (params.invited)
+    return { tone: "success", text: "You're set up. Log in, then add your authenticator app." } as const;
   if (params.reset)
     return { tone: "success", text: "Password updated. Log in with your new password." } as const;
   if (params.twofactor)

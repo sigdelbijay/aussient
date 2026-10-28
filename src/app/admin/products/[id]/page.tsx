@@ -91,8 +91,9 @@ export default async function EditProductPage({ params, searchParams }: PageProp
       {sp.duplicated && <div className="mb-4"><FormAlert tone="success">This is a copy, saved as a draft. Rename it, set SKUs, then set it Live.</FormAlert></div>}
 
       <div className="grid gap-6">
+        {/* Keyed by id only: keying by updatedAt reset the form after each save and hid the "saved" message. */}
         <ProductForm
-          key={product.updatedAt.toISOString()}
+          key={product.id}
           {...choices}
           typeLocked={product.optionValues.length > 0}
           values={{

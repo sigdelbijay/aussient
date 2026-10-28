@@ -189,6 +189,52 @@
   }
 }
 
+/* Text written in the admin page editor (About, FAQ…), in the shop and in the editor itself. */
+@layer components {
+  .rich-text {
+    @apply text-base leading-relaxed;
+  }
+  .rich-text > * + * {
+    @apply mt-4;
+  }
+  .rich-text h2 {
+    @apply mt-8 text-2xl font-extrabold;
+  }
+  .rich-text h3 {
+    @apply mt-6 text-xl font-bold;
+  }
+  .rich-text h4 {
+    @apply mt-5 text-base font-bold;
+  }
+  .rich-text ul {
+    @apply list-disc pl-6;
+  }
+  .rich-text ol {
+    @apply list-decimal pl-6;
+  }
+  .rich-text li + li {
+    @apply mt-1;
+  }
+  .rich-text li > p {
+    @apply m-0;
+  }
+  .rich-text blockquote {
+    @apply border-l-4 border-brand-accent pl-4 text-muted-foreground italic;
+  }
+  .rich-text a {
+    @apply font-medium text-brand-accent underline underline-offset-2;
+  }
+  .rich-text hr {
+    @apply my-8 border-border;
+  }
+  .rich-text code {
+    @apply rounded bg-muted px-1 py-0.5 text-sm;
+  }
+  .rich-text > :first-child {
+    @apply mt-0;
+  }
+}
+
 /* Honour the OS "reduce motion" setting everywhere. */
 @media (prefers-reduced-motion: reduce) {
   *,

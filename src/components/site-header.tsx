@@ -11,7 +11,7 @@ import { MobileMenu } from "@/components/mobile-menu";
 import { openBag, useBag } from "@/lib/bag-store";
 import type { MenuGroup } from "@/lib/storefront";
 
-export function SiteHeader({ menu, storeName }: { menu: MenuGroup[]; storeName: string }) {
+export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; storeName: string; logo: string | null }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
@@ -42,7 +42,7 @@ export function SiteHeader({ menu, storeName }: { menu: MenuGroup[]; storeName: 
 
         {/* Logo */}
         <Link href="/" className="font-heading text-xl font-extrabold tracking-tight uppercase lg:text-2xl">
-          {storeName}
+          {logo ? <Image src={logo} alt={storeName} width={160} height={48} priority className="h-8 w-auto max-w-40 object-contain lg:h-9" /> : storeName}
         </Link>
 
         {/* Desktop nav + mega menu */}

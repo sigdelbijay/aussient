@@ -1,4 +1,7 @@
 import { AnnouncementBar } from "@/components/announcement-bar";
+import { PreviewBar } from "@/components/preview-bar";
+import { SitePopup } from "@/components/site-popup";
+import { accentCss } from "@/lib/colors";
 import { OffersProvider } from "@/components/offers-provider";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
@@ -6,7 +9,7 @@ import { BagPanel } from "@/components/bag/bag-panel";
 import { getLiveOffers } from "@/lib/offers";
 import { getLiveSiteChrome } from "@/lib/storefront";
 
-/** Storefront chrome: announcement bar, header, footer and the slide-out bag. */
+/** Storefront chrome: announcement bar, header, footer, pop-up and the slide-out bag. */
 export default async function ShopLayout({ children }: LayoutProps<"/">) {
   // Announcement bar, menus and footer come from the database (cached; see src/lib/storefront.ts).
   const [chrome, offers] = await Promise.all([getLiveSiteChrome(), getLiveOffers()]);
@@ -18,13 +21,20 @@ export default async function ShopLayout({ children }: LayoutProps<"/">) {
     ...chrome.announcements.filter((a) => !offerTexts.has(a.text.toLowerCase())),
   ];
 
+  const accent = accentCss(chrome.settings.accentColor);
+  const popup = chrome.popups[0];
+
   return (
     <OffersProvider offers={offers.map((o) => ({ id: o.id, badge: o.badge, text: o.text, productIds: o.productIds }))}>
+      {/* The accent colour from Settings (only ever a checked #rrggbb value). */}
+      {accent && <style>{accent}</style>}
+      {chrome.preview && <PreviewBar />}
       <AnnouncementBar items={announcements} />
-      <SiteHeader menu={chrome.headerMenu} storeName={chrome.settings.storeName} />
+      <SiteHeader menu={chrome.headerMenu} storeName={chrome.settings.storeName} logo={chrome.settings.logo} />
       <main className="flex-1">{children}</main>
       <SiteFooter settings={chrome.settings} menu={chrome.footerMenu} />
       <BagPanel />
+      {popup && <SitePopup key={popup.id} popup={popup} preview={chrome.preview} />}
     </OffersProvider>
   );
 }
