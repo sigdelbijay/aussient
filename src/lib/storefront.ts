@@ -25,7 +25,7 @@ import { DEFAULT_SOCIALS, type SocialKey } from "@/lib/socials";
 
 // The data cache outlives deploys, so bump this whenever the shape of cached
 // data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
-const CACHE_VERSION = 10;
+const CACHE_VERSION = 11;
 
 export const storefrontCache: typeof unstable_cache =
   process.env.NODE_ENV === "development"

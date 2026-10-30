@@ -467,9 +467,31 @@ export async function getCollectionRow(slug: string, limit: number): Promise<Pro
   return listing.products.slice(0, limit);
 }
 
-/** Top-level categories (with a picture) — the home page's "Shop by category" tiles. */
+/**
+ * Does this page list at least one live product? Categories, collections and
+ * brands with nothing live (e.g. every product in them set back to Draft) are
+ * left out of the menus, the "Shop by category" tiles and the sitemap, so a
+ * department disappears from the shop as soon as its products are unpublished.
+ */
+export async function scopeHasProducts(scope: Scope): Promise<boolean> {
+  if (scope.kind === "search") return true;
+  return (await getScopeItems(scope)).length > 0;
+}
+
+/** A shop link's listing (/collections/… or /brands/…), or null for any other link. */
+export async function listingScopeOf(url: string): Promise<Scope | null> {
+  const match = /^\/(collections|brands)\/([a-z0-9-]+)\/?(?:[?#].*)?$/.exec(url);
+  if (!match) return null;
+  const [, kind, slug] = match;
+  if (kind === "brands") return { kind: "brand", slug };
+  return (await getListingPage(slug))?.scope ?? null;
+}
+
+/** Top-level categories with live products (with a picture) — the home page's "Shop by category" tiles. */
 export async function getTopCategories() {
-  return (await getCategories()).filter((c) => c.parentId === null);
+  const tops = (await getCategories()).filter((c) => c.parentId === null);
+  const keep = await Promise.all(tops.map((c) => scopeHasProducts({ kind: "category", slug: c.slug })));
+  return tops.filter((_, i) => keep[i]);
 }
 
 // ── Product detail ──────────────────────────────────────────────
