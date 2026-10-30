@@ -6,6 +6,7 @@ import { OffersProvider } from "@/components/offers-provider";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { BagPanel } from "@/components/bag/bag-panel";
+import { CookieConsent } from "@/components/cookie-consent";
 import { getLiveOffers } from "@/lib/offers";
 import { getLiveSiteChrome } from "@/lib/storefront";
 
@@ -34,6 +35,7 @@ export default async function ShopLayout({ children }: LayoutProps<"/">) {
       <main className="flex-1">{children}</main>
       <SiteFooter settings={chrome.settings} menu={chrome.footerMenu} />
       <BagPanel />
+      <CookieConsent gaId={chrome.settings.googleAnalyticsId} />
       {popup && <SitePopup key={popup.id} popup={popup} preview={chrome.preview} />}
     </OffersProvider>
   );

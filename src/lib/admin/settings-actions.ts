@@ -54,6 +54,9 @@ const settingsSchema = z.object({
     .max(500)
     .transform((t) => t.split("\n").map((l) => l.trim()).filter(Boolean))
     .refine((l) => l.length <= 4, "Up to 4 lines"),
+  googleAnalyticsId: optionalText(20)
+    .transform((v) => v?.toUpperCase() ?? null)
+    .refine((v) => v === null || /^G-[A-Z0-9]{4,15}$/.test(v), "Use the Measurement ID, like G-ABC123XYZ"),
   lowStockAlert: wholeNumber.refine((n) => n <= 1000, "Use 1000 or less"),
   ...Object.fromEntries(SOCIAL_KEYS.map((s) => [`social_${s}`, url])),
 });

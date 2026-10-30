@@ -8,7 +8,7 @@ import { requireStaff } from "@/lib/auth/dal";
 import { parseSpecInput, readSpecFields, readSpecs, type Specs } from "@/lib/product-types";
 import { cloudinaryConfig, MEDIA_FOLDER, signParams } from "./cloudinary";
 import { diff, recordChange } from "./activity";
-import { checkbox, fieldErrors, money, optionalMoney, optionalText, wholeNumber, type AdminFormState } from "./form";
+import { checkbox, fieldErrors, money, optionalMoney, optionalPlainText, optionalText, wholeNumber, type AdminFormState } from "./form";
 import { slugify, uniqueSlug } from "./slug";
 import { addRedirect } from "@/lib/redirects";
 
@@ -39,12 +39,12 @@ const tagList = z
 const productSchema = z.object({
   name: z.string().trim().min(1, "Enter a name").max(120),
   slug: optionalText(80),
-  description: optionalText(5000),
+  description: optionalPlainText(5000),
   productTypeId: z.string("Choose a product type").min(1, "Choose a product type"),
   brandId: optionalText(64),
   tags: tagList,
-  details: optionalText(2000),
-  care: optionalText(2000),
+  details: optionalPlainText(2000),
+  care: optionalPlainText(2000),
   seoTitle: optionalText(70),
   seoDescription: optionalText(170),
   status: z.enum(["DRAFT", "LIVE"]),

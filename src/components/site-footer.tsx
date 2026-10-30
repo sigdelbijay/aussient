@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AtSign, Camera, Hash, Headphones, Mail, Phone, Pin, Play, RefreshCw, Sparkles, ThumbsUp, Truck } from "lucide-react";
+import { CookieSettingsButton } from "@/components/cookie-consent";
 import { NewsletterForm } from "@/components/newsletter-form";
 import type { SiteChrome } from "@/lib/storefront";
 
@@ -121,6 +122,12 @@ export function SiteFooter({
           <p className="text-xs text-brand-paper/50">
             © {new Date().getFullYear()} {settings.storeName}. All rights reserved.
             {settings.abn && <> · ABN {settings.abn}</>}
+            {settings.googleAnalyticsId && (
+              <>
+                {" · "}
+                <CookieSettingsButton />
+              </>
+            )}
           </p>
           <ul className="flex flex-wrap items-center gap-2">
             {payments.map((p) => (

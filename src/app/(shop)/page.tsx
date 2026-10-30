@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { HomeSection } from "@/components/home/home-section";
 import { parseSection } from "@/lib/home-sections";
 import { getLiveHomeSections } from "@/lib/storefront";
@@ -10,6 +11,9 @@ import { getLiveHomeSections } from "@/lib/storefront";
  * (refreshStorefront in src/lib/cache.ts) or when a scheduled section's start or
  * end time arrives.
  */
+// Title and description come from Settings (see the root layout); this adds the canonical link.
+export const metadata: Metadata = { alternates: { canonical: "/" } };
+
 export default async function Home() {
   const sections = (await getLiveHomeSections()).map(parseSection).filter((s) => s !== null);
 

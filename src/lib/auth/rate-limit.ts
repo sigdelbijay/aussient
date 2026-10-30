@@ -27,6 +27,21 @@ export async function lockoutMinutesLeft(email: string): Promise<number> {
   return Math.max(0, Math.ceil((unlockAt - Date.now()) / 60_000));
 }
 
+/**
+ * A bot trying many different emails from one connection: 20 failed sign-ins
+ * from the same IP address within 15 minutes blocks that IP for a while.
+ */
+export const MAX_FAILED_PER_IP = 20;
+
+export async function ipBlocked(ip: string | null): Promise<boolean> {
+  if (!ip) return false;
+  const since = new Date(Date.now() - LOCKOUT_MINUTES * 60_000);
+  const failures = await prisma.loginAttempt.count({
+    where: { ip, success: false, createdAt: { gt: since } },
+  });
+  return failures >= MAX_FAILED_PER_IP;
+}
+
 export async function recordLoginAttempt(email: string, success: boolean, ip?: string | null) {
   await prisma.loginAttempt.create({ data: { email, success, ip: ip ?? null } });
 }

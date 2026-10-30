@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth/dal";
+import { clientIp, tooManyAttempts } from "@/lib/rate-limit";
 import { live } from "@/lib/storefront";
 
 /**
@@ -57,6 +59,9 @@ export async function notifyMeAction(_prev: NotifyState, formData: FormData): Pr
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { productId, email } = parsed.data;
   const variantId = parsed.data.variantId || null;
+  if (await tooManyAttempts("notify-me", clientIp(await headers()), { max: 10, minutes: 60 })) {
+    return { error: "Too many requests — please try again later." };
+  }
 
   const product = await prisma.product.findFirst({
     where: { id: productId, ...live },

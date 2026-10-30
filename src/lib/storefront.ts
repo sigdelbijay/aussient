@@ -24,7 +24,7 @@ import { loadPublished, type DocOf } from "@/lib/content/store";
 
 // The data cache outlives deploys, so bump this whenever the shape of cached
 // data changes (e.g. a field is added to ProductCardData); old entries are then ignored.
-const CACHE_VERSION = 9;
+const CACHE_VERSION = 10;
 
 export const storefrontCache: typeof unstable_cache =
   process.env.NODE_ENV === "development"
@@ -87,6 +87,8 @@ export type SiteChrome = {
     supportEmail: string | null;
     contactPhone: string | null;
     abn: string | null;
+    /** Google Analytics "G-…" ID; it only loads after the shopper accepts cookies. */
+    googleAnalyticsId: string | null;
     deliveryInfo: string | null;
     returnsInfo: string | null;
     newsletterHeading: string;
@@ -196,6 +198,7 @@ async function loadSiteChrome(preview: boolean): Promise<SiteChrome> {
       supportEmail: settings?.supportEmail ?? null,
       contactPhone: settings?.contactPhone ?? null,
       abn: settings?.abn ?? null,
+      googleAnalyticsId: settings?.googleAnalyticsId ?? null,
       deliveryInfo: settings?.deliveryInfo ?? null,
       returnsInfo: settings?.returnsInfo ?? null,
       newsletterHeading: settings?.newsletterHeading ?? "Join the list",

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { LogOut, ShieldCheck, Trash2 } from "lucide-react";
 import { isStaffRole } from "@/auth";
@@ -301,14 +302,15 @@ export default async function AccountPage() {
                 <div key={product.id} className="grid gap-2">
                   <Link
                     href={`/products/${product.slug}`}
-                    className="block overflow-hidden rounded-lg bg-muted"
+                    className="relative block aspect-[4/5] overflow-hidden rounded-lg bg-muted"
                   >
                     {product.media[0] && (
-                      // eslint-disable-next-line @next/next/no-img-element -- placeholder/Cloudinary URLs
-                      <img
+                      <Image
                         src={product.media[0].url}
                         alt={product.media[0].alt ?? product.name}
-                        className="aspect-[4/5] w-full object-cover"
+                        fill
+                        sizes="(min-width: 640px) 200px, 45vw"
+                        className="object-cover"
                       />
                     )}
                   </Link>

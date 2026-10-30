@@ -44,6 +44,7 @@ export default async function SettingsPage() {
           newsletterText: s?.newsletterText ?? "",
           footerPerks: Array.isArray(s?.footerPerks) ? (s.footerPerks as string[]).join("\n") : "",
           lowStockAlert: s?.lowStockAlert ?? 5,
+          googleAnalyticsId: s?.googleAnalyticsId ?? "",
         }}
       />
     </>

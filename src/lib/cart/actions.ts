@@ -1,7 +1,9 @@
 "use server";
 
+import { headers } from "next/headers";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/dal";
+import { clientIp, tooManyAttempts } from "@/lib/rate-limit";
 import { MAX_QTY } from "@/lib/catalog-shared";
 import { lineKey, tidyItems, type Totals } from "./pricing";
 import { readBag, writeBag, type StoredBag } from "./storage";
@@ -73,6 +75,11 @@ export async function setQuantityAction(productId: string, variantId: string | n
 export async function applyCodeAction(code: string): Promise<Totals> {
   const parsed = z.string().trim().min(1).max(40).parse(code);
   const { user, bag } = await current();
+  // Stops bots guessing codes: 10 tries per 10 minutes, then the code box says "slow down".
+  if (await tooManyAttempts("discount-code", clientIp(await headers()), { max: 10, minutes: 10 })) {
+    const totals = await priced(user, bag, false);
+    return { ...totals, code: { code: parsed.toUpperCase(), error: "Too many codes tried — please wait a few minutes.", recognised: false } };
+  }
   return priced(user, { ...bag, code: parsed });
 }
 

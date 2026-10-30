@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { htmlToText } from "@/lib/plain-text";
 
 /** What admin form actions return: an overall message/error plus per-field errors. */
 export type AdminFormState =
@@ -21,6 +22,10 @@ const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === 
 
 export const optionalText = (max: number) =>
   z.preprocess(blankToUndefined, z.string().trim().max(max).optional()).transform((v) => v ?? null);
+
+/** Like optionalText, but any HTML pasted in is turned into plain text (see htmlToText). */
+export const optionalPlainText = (max: number) =>
+  optionalText(max * 2).transform((v) => (v === null ? null : htmlToText(v).slice(0, max) || null));
 
 export const money = z
   .string("Enter a price")

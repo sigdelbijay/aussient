@@ -174,8 +174,9 @@ export function ProductCard({ product }: { product: ProductCardData }) {
       {/* Details — fixed-height rows so every card in a grid lines up. */}
       <div className="mt-3 flex flex-1 flex-col gap-1.5">
         {/* Swatches (always takes its row, even when empty) */}
-        <div className="flex h-5 items-center gap-1.5">
+        <div className="-ml-1 flex h-6 items-center">
           {product.swatches.slice(0, MAX_DOTS).map((swatch, i) => (
+            // A 24px button (easy to tap on a phone) around a 16px colour dot.
             <button
               key={swatch.id}
               type="button"
@@ -183,17 +184,21 @@ export function ProductCard({ product }: { product: ProductCardData }) {
               aria-label={swatch.stock > 0 ? swatch.name : `${swatch.name} (sold out)`}
               aria-pressed={i === activeSwatch}
               title={swatch.stock > 0 ? swatch.name : `${swatch.name} — sold out`}
-              className={cn(
-                "size-4 rounded-full bg-cover bg-center ring-1 ring-inset ring-black/10 transition-transform duration-200 ease-snappy hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                i === activeSwatch && "ring-2 ring-offset-2 ring-offset-background ring-foreground",
-                swatch.stock <= 0 && "opacity-40",
-              )}
-              style={
-                swatch.image
-                  ? { backgroundImage: `url("${swatch.image}")` }
-                  : { background: swatch.color ?? undefined }
-              }
-            />
+              className="group/dot grid size-6 place-items-center rounded-full focus-visible:outline-none"
+            >
+              <span
+                className={cn(
+                  "size-4 rounded-full bg-cover bg-center ring-1 ring-inset ring-black/10 transition-transform duration-200 ease-snappy group-hover/dot:scale-110 group-focus-visible/dot:ring-2 group-focus-visible/dot:ring-ring",
+                  i === activeSwatch && "ring-2 ring-offset-2 ring-offset-background ring-foreground",
+                  swatch.stock <= 0 && "opacity-40",
+                )}
+                style={
+                  swatch.image
+                    ? { backgroundImage: `url("${swatch.image}")` }
+                    : { background: swatch.color ?? undefined }
+                }
+              />
+            </button>
           ))}
           {product.swatches.length > MAX_DOTS && (
             <Link href={href} className="text-xs text-muted-foreground hover:text-foreground">

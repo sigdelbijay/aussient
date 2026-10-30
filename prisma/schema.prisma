@@ -369,6 +369,26 @@ model Order {
   @@index([status, createdAt])
 }
 
+/// A trip to Stripe's payment page: the bag exactly as it was priced on the
+/// server when the shopper pressed Checkout. When Stripe says it's paid, the
+/// order is made from this (never from anything the browser sent).
+model CheckoutSession {
+  id              String    @id @default(cuid())
+  stripeSessionId String?   @unique
+  userId          String?
+  email           String? // the signed-in shopper's email (guests type theirs on Stripe's page)
+  /// The priced lines: [{ productId, variantId, name, variantName, sku, options, unitPrice, qty, lineTotal }]
+  lines           Json
+  subtotal        Decimal   @db.Decimal(10, 2)
+  discountTotal   Decimal   @default(0) @db.Decimal(10, 2)
+  discountId      String?
+  orderId         String?   @unique // set once the order has been made
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@index([createdAt])
+}
+
 /// One line on an order — snapshots name/price so history survives product edits.
 model OrderItem {
   id          String          @id @default(cuid())
@@ -423,6 +443,16 @@ model AuthToken {
   createdAt DateTime      @default(now())
 
   @@index([userId, type])
+}
+
+/// One attempt at something bots like to repeat (sign-ups, discount codes,
+/// newsletter, password-reset emails). Counted per action and visitor to slow them down.
+model RateLimitHit {
+  id        String   @id @default(cuid())
+  key       String // e.g. "signup:203.0.113.5"
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }
 
 /// Every sign-in attempt, used to lock an email out after too many failures.
@@ -579,6 +609,7 @@ model SiteSettings {
   deliveryInfo          String? // "Delivery" section on product pages, one fact per line
   returnsInfo           String? // "Returns" section on product pages, one fact per line
   lowStockAlert         Int      @default(5) // admin warns when a variant has this many or fewer left
+  googleAnalyticsId     String? // e.g. G-ABC123 — only loads after a visitor accepts cookies
   updatedAt             DateTime @updatedAt
 }
 

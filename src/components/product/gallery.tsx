@@ -59,7 +59,9 @@ export function Gallery({ media }: { media: GalleryMedia[] }) {
                     src={m.url}
                     alt={m.alt}
                     fill
-                    priority={i === 0}
+                    // The first photo is what shoppers see first, so it loads before anything else.
+                    loading={i === 0 ? "eager" : undefined}
+                    fetchPriority={i === 0 ? "high" : undefined}
                     sizes="(min-width: 1024px) 50vw, 100vw"
                     // Whole photo, square or tall; white backgrounds blend into the grey frame.
                     className="object-contain mix-blend-multiply dark:mix-blend-normal"

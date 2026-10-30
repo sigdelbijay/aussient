@@ -123,6 +123,16 @@ Pictures and videos upload straight from your computer or phone. Use wide pictur
 
 Changing a page's **web address** after publishing is safe: the old address redirects to the new one.
 
+**Privacy, Terms, Shipping and Returns:** drafts written for Australian law (Privacy Act, Australian Consumer Law, Spam Act) are waiting in these four pages, unpublished. Fill in everything in [square brackets] (business name, address, dates, the watch warranty period), check that each page matches how you actually trade, and press **Publish**. Have them checked by a lawyer if you can. To recreate the drafts later (it never overwrites a draft you've started), run `pnpm db:legal-drafts`.
+
+---
+
+## How customers pay
+
+Customers press **Checkout** in their bag and pay on Stripe's secure payment page: card, plus whichever of Afterpay, Zip, Klarna, Apple Pay and Google Pay you switch on in Stripe (**Settings → Payment methods**). They type their delivery address and choose **Standard** or **Express** shipping there; the prices come from **Settings**. Prices and discounts are always worked out again on the server, so nobody can change what they pay.
+
+When the payment goes through, the order appears in **Orders → To ship**. The stock comes off, the paid items leave their bag, and the confirmation and "New order" emails go out. If two people buy the last one at the same moment, stock stops at 0 and the **Activity log** shows "order.oversold": contact one of them to offer a refund.
+
 ---
 
 ## Shipping an order
@@ -178,7 +188,8 @@ Typed the tracking number wrong? Fix it on the order and click **Save tracking d
 - social media links;
 - shipping prices: standard, express, and the free-shipping amount;
 - the footer's perks and newsletter text;
-- the low-stock alert level.
+- the low-stock alert level;
+- **Google Analytics**: paste your Measurement ID (G-…). Shoppers then see a cookie banner, and analytics only runs for those who press **Accept**. Leave it blank for no analytics and no banner.
 
 All prices include GST.
 
@@ -197,3 +208,5 @@ All prices include GST.
 - **"Fix these before publishing".** The list says exactly what's missing, for example "image — required". Fix those items and publish again.
 - **You published a mistake.** Open **Version history** and **Restore** the version before it.
 - **You can't log in.** After several wrong tries the account pauses for a few minutes. If you've lost your authenticator app, ask an admin.
+- **"Too many tries" for a shopper.** To stop bots, the shop limits how often one visitor can sign up, ask for reset emails, try discount codes, join the newsletter or use Notify me. The limit clears by itself within an hour.
+- **An email saying "Site error on …".** Something broke for a visitor. The email says which page; search the error code in **Vercel → your project → Logs** for the details. You get at most one email per problem every 30 minutes.

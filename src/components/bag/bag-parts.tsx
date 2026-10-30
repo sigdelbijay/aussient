@@ -5,9 +5,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { Loader2, Minus, Plus, Tag, Trash2, Truck, X } from "lucide-react";
 import { cn } from "cn";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { applyCode, closeBag, removeCode, removeLine, setQuantity } from "@/lib/bag-store";
+import { startCheckoutAction } from "@/lib/checkout/actions";
 import type { BagLine, Totals } from "@/lib/cart/pricing";
 import { formatPrice } from "@/lib/format";
 
@@ -249,21 +250,33 @@ function Row({ label, value, accent }: { label: string; value: string; accent?: 
 }
 
 export function CheckoutButton({ totals }: { totals: Totals }) {
+  const [going, startGoing] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const blocked = !totals.canCheckout;
+
+  // Prices are worked out again on the server, then Stripe's payment page opens.
+  const checkout = () =>
+    startGoing(async () => {
+      setError(null);
+      const result = await startCheckoutAction();
+      if ("url" in result) window.location.assign(result.url);
+      else setError(result.error);
+    });
+
   return (
     <div className="grid gap-2">
-      {blocked ? (
-        <Button disabled className="h-12 w-full font-heading font-bold uppercase tracking-wide">
-          Checkout
-        </Button>
-      ) : (
-        <Link
-          href="/checkout"
-          onClick={closeBag}
-          className={cn(buttonVariants(), "h-12 w-full font-heading font-bold uppercase tracking-wide")}
-        >
-          Checkout
-        </Link>
+      <Button
+        onClick={checkout}
+        disabled={blocked || going}
+        className="h-12 w-full font-heading font-bold uppercase tracking-wide"
+      >
+        {going && <Loader2 className="size-4 animate-spin" aria-hidden />}
+        {going ? "Opening secure payment…" : "Checkout"}
+      </Button>
+      {error && (
+        <p role="alert" className="text-center text-sm text-destructive">
+          {error}
+        </p>
       )}
       <p className="text-center text-xs text-muted-foreground">
         or 4 interest-free payments of {formatPrice(Math.ceil(Math.round(totals.total * 100) / 4) / 100)} with Afterpay

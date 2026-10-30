@@ -1,7 +1,9 @@
 "use server";
 
+import { headers } from "next/headers";
 import { z } from "zod";
 import { setMarketingConsent } from "@/lib/marketing";
+import { clientIp, tooManyAttempts } from "@/lib/rate-limit";
 
 export type NewsletterState = { ok?: boolean; error?: string } | undefined;
 
@@ -16,6 +18,10 @@ export async function subscribeAction(
     .transform((e) => e.toLowerCase().trim())
     .safeParse(formData.get("email"));
   if (!email.success) return { error: "Enter a valid email address." };
+  // Stops bots signing up long lists of addresses.
+  if (await tooManyAttempts("newsletter", clientIp(await headers()), { max: 5, minutes: 60 })) {
+    return { error: "Too many sign-ups from here — please try again later." };
+  }
 
   // Also ticks "email me news and offers" on their account, if they have one.
   await setMarketingConsent(email.data, true);

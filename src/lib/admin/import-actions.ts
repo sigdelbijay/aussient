@@ -7,6 +7,7 @@ import { recordChange } from "./activity";
 import { parseCsvObjects } from "./csv";
 import { money } from "./form";
 import { slugify } from "./slug";
+import { htmlToText } from "@/lib/plain-text";
 
 /**
  * CSV import, in the same format as the export: one row per variant, rows
@@ -92,9 +93,10 @@ export async function importProductsAction(_prev: ImportState, formData: FormDat
       tags: list(row.tags).map((t) => t.toLowerCase().slice(0, 40)),
       featured: yes(row.featured),
       status: yes(row.status) ? ("LIVE" as const) : ("DRAFT" as const),
-      description: row.description || null,
-      details: row.details || null,
-      care: row.care || null,
+      // Supplier/other-shop CSVs often have HTML in these; keep just the text.
+      description: htmlToText(row.description ?? "").slice(0, 5000) || null,
+      details: htmlToText(row.details ?? "").slice(0, 2000) || null,
+      care: htmlToText(row.care ?? "").slice(0, 2000) || null,
       seoTitle: row.seo_title || null,
       seoDescription: row.seo_description || null,
       ...(categoryNames.length && { categories: { set: found.map((c) => ({ id: c!.id })) } }),

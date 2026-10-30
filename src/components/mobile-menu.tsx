@@ -25,7 +25,8 @@ export function MobileMenu({
         "fixed inset-0 z-[70] lg:hidden",
         open ? "pointer-events-auto" : "pointer-events-none",
       )}
-      aria-hidden={!open}
+      // Closed: hidden from screen readers AND can't be tabbed into.
+      inert={!open}
     >
       {/* Backdrop */}
       <div

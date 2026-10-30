@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AuthError, type CredentialsSignin } from "next-auth";
 import bcrypt from "bcryptjs";
@@ -11,7 +12,8 @@ import { setMarketingConsent } from "@/lib/marketing";
 import { decrypt } from "@/lib/auth/crypto";
 import { verifyTotp } from "@/lib/auth/totp";
 import { requireUser } from "@/lib/auth/dal";
-import { clearFailedLogins, lockoutMinutesLeft } from "@/lib/auth/rate-limit";
+import { clientIp, tooManyAttempts } from "@/lib/rate-limit";
+import { LOCKOUT_MINUTES, clearFailedLogins, lockoutMinutesLeft } from "@/lib/auth/rate-limit";
 import {
   EMAIL_VERIFY_MINUTES,
   PASSWORD_RESET_MINUTES,
@@ -21,6 +23,13 @@ import {
 } from "@/lib/auth/tokens";
 
 export type FormState = { error?: string; message?: string } | undefined;
+
+const SLOW_DOWN = "Too many tries — please wait a while and try again.";
+
+/** Limits how often one visitor can do something (stops bots). See src/lib/rate-limit.ts. */
+async function tooMany(action: string, max: number, minutes: number) {
+  return tooManyAttempts(action, clientIp(await headers()), { max, minutes });
+}
 
 const emailField = z.email("Enter a valid email address").transform((e) => e.toLowerCase().trim());
 // bcrypt only uses the first 72 bytes, so cap the length there.
@@ -61,6 +70,7 @@ export async function signupAction(_prev: FormState, formData: FormData): Promis
   const parsed = signupSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { name, email, password, marketing } = parsed.data;
+  if (await tooMany("signup", 5, 60)) return { error: SLOW_DOWN };
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -101,7 +111,8 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     const code = error.type === "CredentialsSignin" ? (error as CredentialsSignin).code : "";
     switch (code) {
       case "locked": {
-        const mins = await lockoutMinutesLeft(email);
+        // Locked by email (shows the minutes left) or by too many tries from this connection.
+        const mins = (await lockoutMinutesLeft(email)) || LOCKOUT_MINUTES;
         return {
           email,
           error: `Too many failed attempts. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`,
@@ -136,6 +147,7 @@ export async function resendVerificationAction(
   formData: FormData,
 ): Promise<FormState> {
   const email = emailField.safeParse(formData.get("email"));
+  if (await tooMany("resend-verification", 5, 60)) return { error: SLOW_DOWN };
   if (email.success) {
     const user = await prisma.user.findUnique({ where: { email: email.data } });
     if (user && !user.emailVerified && !(await sentRecently(user.id, "EMAIL_VERIFY"))) {
@@ -153,6 +165,7 @@ export async function forgotPasswordAction(
 ): Promise<FormState> {
   const parsed = emailField.safeParse(formData.get("email"));
   if (!parsed.success) return { error: "Enter a valid email address" };
+  if (await tooMany("forgot-password", 5, 60)) return { error: SLOW_DOWN };
 
   const user = await prisma.user.findUnique({ where: { email: parsed.data } });
   if (user && !(await sentRecently(user.id, "PASSWORD_RESET"))) {

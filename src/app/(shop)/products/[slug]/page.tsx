@@ -95,7 +95,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
         >
           {(product.description || product.details) && (
             <InfoSection title="Description" open>
-              {product.description && <p>{product.description}</p>}
+              {product.description && <p className="whitespace-pre-line">{product.description}</p>}
               {product.details && <div className="mt-3">{lines(product.details)}</div>}
             </InfoSection>
           )}

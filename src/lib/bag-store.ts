@@ -185,3 +185,6 @@ export async function applyCode(code: string): Promise<string | null> {
 }
 
 export const removeCode = () => run(removeCodeAction);
+
+/** Fetches the bag from the server again (e.g. after an order took items out of it). */
+export const reloadBag = () => run(getBagAction);

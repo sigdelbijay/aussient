@@ -31,6 +31,7 @@ export type SettingsValues = {
   newsletterText: string;
   footerPerks: string;
   lowStockAlert: number;
+  googleAnalyticsId: string;
 };
 
 const DEFAULT_ACCENT = "#e6007e";
@@ -142,6 +143,17 @@ export function SettingsForm({
               <input name="newsletterText" defaultValue={values.newsletterText} maxLength={300} className={inputClass} />
             </AdminField>
           </div>
+        </Panel>
+
+        <Panel title="Google Analytics">
+          <AdminField
+            label="Measurement ID"
+            error={err("googleAnalyticsId")}
+            hint="From Google Analytics → Admin → Data streams → your web stream, e.g. G-ABC123XYZ. Leave blank for no analytics. It only loads for shoppers who accept cookies."
+            className="max-w-xs"
+          >
+            <input name="googleAnalyticsId" defaultValue={values.googleAnalyticsId} maxLength={20} placeholder="G-…" className={inputClass} />
+          </AdminField>
         </Panel>
 
         <Panel title="Stock">

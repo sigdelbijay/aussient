@@ -8,7 +8,7 @@ import type { Role } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/auth/crypto";
 import { verifyTotp } from "@/lib/auth/totp";
-import { lockoutMinutesLeft, recordLoginAttempt } from "@/lib/auth/rate-limit";
+import { ipBlocked, lockoutMinutesLeft, recordLoginAttempt } from "@/lib/auth/rate-limit";
 import { sendWelcomeEmail } from "@/lib/welcome-email";
 
 /**
@@ -81,7 +81,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { email, password, code } = parsed.data;
         const ip = request?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
 
-        if ((await lockoutMinutesLeft(email)) > 0) throw new LockedOut();
+        if ((await lockoutMinutesLeft(email)) > 0 || (await ipBlocked(ip))) throw new LockedOut();
 
         const user = await prisma.user.findUnique({ where: { email } });
         const passwordOk = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);

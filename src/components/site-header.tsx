@@ -42,7 +42,7 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
 
         {/* Logo */}
         <Link href="/" className="font-heading text-xl font-extrabold tracking-tight uppercase lg:text-2xl">
-          {logo ? <Image src={logo} alt={storeName} width={160} height={48} priority className="h-8 w-auto max-w-40 object-contain lg:h-9" /> : storeName}
+          {logo ? <Image src={logo} alt={storeName} width={160} height={48} loading="eager" className="h-8 w-auto max-w-40 object-contain lg:h-9" /> : storeName}
         </Link>
 
         {/* Desktop nav + mega menu */}
