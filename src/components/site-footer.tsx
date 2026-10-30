@@ -1,17 +1,19 @@
 import Link from "next/link";
-import { AtSign, Camera, Hash, Headphones, Mail, Phone, Pin, Play, RefreshCw, Sparkles, ThumbsUp, Truck } from "lucide-react";
+import { Camera, Hash, Headphones, Mail, Phone, Pin, Play, RefreshCw, Sparkles, Truck } from "lucide-react";
 import { CookieSettingsButton } from "@/components/cookie-consent";
 import { NewsletterForm } from "@/components/newsletter-form";
+import { FacebookIcon, LinkedinIcon } from "@/components/social-icons";
 import type { SiteChrome } from "@/lib/storefront";
 
-// The icon set has no brand logos, so each network gets a simple stand-in icon.
+// lucide has no brand logos: Facebook and LinkedIn are drawn in social-icons.tsx,
+// the others use a simple stand-in icon. Same order as SOCIALS in src/lib/socials.ts.
 const socialIcons = [
+  { key: "facebook", label: "Facebook", icon: FacebookIcon },
   { key: "instagram", label: "Instagram", icon: Camera },
-  { key: "tiktok", label: "TikTok", icon: Hash },
-  { key: "facebook", label: "Facebook", icon: ThumbsUp },
   { key: "youtube", label: "YouTube", icon: Play },
+  { key: "linkedin", label: "LinkedIn", icon: LinkedinIcon },
+  { key: "tiktok", label: "TikTok", icon: Hash },
   { key: "pinterest", label: "Pinterest", icon: Pin },
-  { key: "threads", label: "Threads", icon: AtSign },
 ] as const;
 
 const payments = ["VISA", "Mastercard", "AMEX", "PayPal", "Afterpay", "Zip"];
@@ -83,7 +85,7 @@ export function SiteFooter({
               <a
                 key={label}
                 href={href}
-                aria-label={label}
+                aria-label={`${settings.storeName} on ${label} (opens in a new tab)`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="grid size-9 place-items-center rounded-full border border-brand-paper/20 transition-all duration-200 ease-snappy hover:scale-110 hover:border-brand-accent hover:text-brand-accent"

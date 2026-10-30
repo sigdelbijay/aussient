@@ -9,6 +9,7 @@ import type { DocKey, MenuLinkDoc } from "@/lib/content/docs";
 import { isPreview, previewDoc } from "@/lib/content/preview";
 import { cleanRichText, type RichDoc } from "@/lib/content/rich-text";
 import { loadPublished, type DocOf } from "@/lib/content/store";
+import { DEFAULT_SOCIALS, type SocialKey } from "@/lib/socials";
 
 /**
  * Cached reads for the public storefront (layout chrome + home page).
@@ -97,7 +98,7 @@ export type SiteChrome = {
     freeShippingThreshold: number | null;
     flatShippingRate: number | null;
     expressShippingRate: number | null;
-    socials: Partial<Record<"instagram" | "tiktok" | "youtube" | "threads" | "facebook" | "pinterest", string>>;
+    socials: Partial<Record<SocialKey, string>>;
   };
   announcements: (Scheduled & { id: string; text: string; link: string | null })[];
   headerMenu: MenuGroup[];
@@ -207,7 +208,7 @@ async function loadSiteChrome(preview: boolean): Promise<SiteChrome> {
       freeShippingThreshold: num(settings?.freeShippingThreshold),
       flatShippingRate: num(settings?.flatShippingRate),
       expressShippingRate: num(settings?.expressShippingRate),
-      socials: (settings?.socials as SiteChrome["settings"]["socials"]) ?? {},
+      socials: (settings?.socials as SiteChrome["settings"]["socials"] | null) ?? DEFAULT_SOCIALS,
     },
     announcements: (announcements?.items ?? [])
       .filter((a) => a.active && a.text)

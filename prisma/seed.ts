@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client";
 import type { SpecField } from "../src/lib/product-types";
 import { rt } from "../src/lib/content/rich-text";
+import { DEFAULT_SOCIALS } from "../src/lib/socials";
 
 // Seeds connect over the DIRECT connection (port 5432), same as migrations.
 const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
@@ -486,12 +487,7 @@ async function seedStorefrontContent() {
       metaDescription: SHOP_TEXT.metaDescription,
       deliveryInfo: SHOP_TEXT.deliveryInfo,
       returnsInfo: SHOP_TEXT.returnsInfo,
-      socials: {
-        instagram: "https://instagram.com/aussient",
-        tiktok: "https://tiktok.com/@aussient",
-        youtube: "https://youtube.com/@aussient",
-        threads: "https://threads.net/@aussient",
-      },
+      socials: DEFAULT_SOCIALS,
     },
   });
 

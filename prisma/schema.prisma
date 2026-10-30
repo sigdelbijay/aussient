@@ -600,7 +600,7 @@ model SiteSettings {
   freeShippingThreshold Decimal? @db.Decimal(10, 2)
   flatShippingRate      Decimal? @db.Decimal(10, 2) // standard shipping
   expressShippingRate   Decimal? @db.Decimal(10, 2) // blank = no express option
-  socials               Json? // { instagram, tiktok, youtube, threads } → URLs
+  socials               Json? // { facebook, instagram, youtube, linkedin, tiktok, pinterest } → URLs (see src/lib/socials.ts)
   newsletterHeading     String?
   newsletterText        String?
   footerPerks           Json? // ["Free shipping over $50", ...]
