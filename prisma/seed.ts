@@ -522,7 +522,6 @@ async function seedStorefrontContent() {
     const messages = [
       "Free shipping on orders over $50",
       "New drops every week",
-      // "Buy 3, get 1 free on Earrings" comes from the automatic offer under Discounts.
       "Afterpay & Zip available",
       "30-day easy returns",
     ];
@@ -636,15 +635,6 @@ async function seedStorefrontContent() {
       { type: "category-tiles", title: "Shop by category", config: {} },
       // Product rows come from collections.
       { type: "product-row", title: "New In", config: { collection: "new-in", limit: 10 } },
-      {
-        type: "promo-banner",
-        config: {
-          image: img("Buy 3 Get 1 Free", "ff2d6f", "1600x600"),
-          heading: "Buy 3, get 1 free",
-          text: "Mix and match any earrings — the cheapest one's on us. Discount applied at checkout.",
-          button: { label: "Shop earrings", href: "/collections/earrings" },
-        },
-      },
       // Scheduled ahead of time: appears on Black Friday and disappears after Cyber Monday.
       {
         type: "promo-banner",
@@ -780,17 +770,14 @@ async function seedStorefrontContent() {
 
   // ── Discounts ───────────────────────────────────────────────
   if ((await prisma.discount.count()) === 0) {
-    const earrings = await prisma.category.findUniqueOrThrow({ where: { slug: "earrings" } });
     await prisma.discount.createMany({
       data: [
-        // Automatic (no code): matches the "Buy 3 Get 1 Free" home banner.
-        { type: "BUY_X_GET_Y", scope: "CATEGORY", categoryId: earrings.id, buyQuantity: 3, getQuantity: 1 },
         { code: "WELCOME10", type: "PERCENT", value: 10, firstOrderOnly: true, perCustomerLimit: 1 },
         { code: "FREESHIP", type: "FREE_SHIPPING", minSpend: 30 },
         { code: "SAVE5", type: "AMOUNT", value: 5, minSpend: 40 },
       ],
     });
-    console.log("✓ Discounts ready (auto Buy 3 Get 1 on earrings; WELCOME10, FREESHIP, SAVE5)");
+    console.log("✓ Discounts ready (WELCOME10, FREESHIP, SAVE5)");
   }
 
   // ── Sample order ────────────────────────────────────────────

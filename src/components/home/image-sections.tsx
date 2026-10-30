@@ -53,7 +53,7 @@ export async function CategoryTiles({
   );
 }
 
-/** Wide image banner with a headline and button — e.g. "Buy 3 Get 1 Free". */
+/** Wide image banner with a headline and button — e.g. "Black Friday: 40% off". */
 export function PromoBanner({ config }: { config: ConfigOf<"promo-banner"> }) {
   return (
     <SectionShell>
