@@ -35,9 +35,15 @@ export function Hero({ config, first }: { config: HeroConfig; first: boolean }) 
         aria-hidden
       />
 
-      <div className="mx-auto flex min-h-[28rem] max-w-7xl flex-col items-start justify-center gap-5 px-4 py-20 sm:min-h-[36rem]">
+      {/*
+        Text sits in one column on the left (the side the gradient darkens),
+        sized per breakpoint so the headline wraps cleanly and never runs into
+        the subheading or buttons. Hero pictures should be photos without words
+        in them: words baked into the picture can't move out of the text's way.
+      */}
+      <div className="mx-auto flex min-h-[28rem] max-w-7xl flex-col items-start justify-center gap-5 px-4 py-16 sm:min-h-[36rem] sm:py-20">
         {config.eyebrow && <Badge variant="sale">{config.eyebrow}</Badge>}
-        <h1 className="text-display max-w-3xl text-5xl leading-[0.95] sm:text-7xl">
+        <h1 className="text-display max-w-[15ch] text-balance break-words text-[2.75rem] leading-[1.02] sm:text-6xl lg:max-w-3xl lg:text-7xl lg:leading-[0.98]">
           {config.headline}
         </h1>
         {config.subheading && (

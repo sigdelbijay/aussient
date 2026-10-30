@@ -626,7 +626,8 @@ async function seedStorefrontContent() {
           eyebrow: "New Season",
           headline: "New season. New you.",
           subheading: "Fashion, accessories and lifestyle pieces — new arrivals every week.",
-          image: img("Aussient — New Season", "1a1a1a", "1920x1080"),
+          // Plain background: words baked into a hero picture end up behind the headline.
+          image: "https://placehold.co/1920x1080/1a1a1a/1a1a1a/png?text=%20",
           button: { label: "Shop New In", href: "/new-in" },
           secondaryButton: { label: "Shop Sale", href: "/sale" },
         },
