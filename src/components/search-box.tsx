@@ -72,7 +72,7 @@ export function SearchBox({ className }: { className?: string }) {
         onClick={() => setOpen(true)}
         aria-label="Search"
         className={cn(
-          "grid size-10 place-items-center rounded-full transition-colors duration-200 hover:bg-muted",
+          "grid size-10 place-items-center rounded-full transition-colors duration-200 hover:bg-white/15", // on the teal header
           className,
         )}
       >
@@ -80,7 +80,8 @@ export function SearchBox({ className }: { className?: string }) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[60]">
+        // text-popover-foreground: the trigger sits on the teal header's white text.
+        <div className="fixed inset-0 z-[60] text-popover-foreground">
           {/* Backdrop */}
           <button
             type="button"

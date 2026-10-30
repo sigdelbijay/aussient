@@ -12,6 +12,11 @@ import { openBag, useBag } from "@/lib/bag-store";
 import type { MenuGroup } from "@/lib/storefront";
 import { BRAND_LOGO } from "@/lib/brand";
 
+// The header sits on the logo's dark teal: white icons, a light hover wash and a
+// white focus ring, so everything on it keeps AA contrast (white on teal 7.7:1).
+const onTeal = "outline-white focus-visible:outline-2 focus-visible:outline-offset-2";
+const iconButton = cn("size-10 place-items-center rounded-full transition-colors hover:bg-white/15", onTeal);
+
 export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; storeName: string; logo: string | null }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -29,23 +34,24 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
   const active = menu.find((c) => c.id === activeCategory) ?? null;
 
   return (
-    // The frosted background is on a ::before layer, not the header itself: a backdrop
-    // blur on the header would trap the fixed mobile-menu drawer inside the header's box.
-    <header className="sticky top-0 z-50 border-b border-border before:absolute before:inset-0 before:-z-10 before:bg-background/90 before:backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4">
+    // The solid logo-teal (#245a68) background stays on a ::before layer, not the header
+    // itself, so a backdrop blur can be added back without trapping the fixed mobile drawer.
+    // White text is set on the bar only, so the mega menu and mobile drawer keep dark text.
+    <header className="sticky top-0 z-50 border-b border-brand-teal before:absolute before:inset-0 before:-z-10 before:bg-brand-teal">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 text-brand-teal-foreground">
         {/* Mobile menu trigger */}
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
           aria-label="Open menu"
-          className="grid size-10 place-items-center rounded-full transition-colors hover:bg-muted lg:hidden"
+          className={cn(iconButton, "grid lg:hidden")}
         >
           <Menu className="size-5" />
         </button>
 
         {/* Logo */}
         {/* The logo uploaded in Settings, else the Aussient logo in /public/brand. */}
-        <Link href="/" className="shrink-0">
+        <Link href="/" className={cn("shrink-0 rounded-sm", onTeal)}>
           {logo ? (
             <Image src={logo} alt={storeName} width={160} height={48} loading="eager" className="h-8 w-auto max-w-40 object-contain lg:h-9" />
           ) : (
@@ -76,9 +82,10 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
                 href={cat.url}
                 onFocus={() => setActiveCategory(cat.children.length > 0 || cat.image ? cat.id : null)}
                 className={cn(
-                  "flex items-center gap-1 px-3.5 font-heading text-sm font-bold uppercase tracking-wide transition-colors duration-200",
-                  cat.label.toLowerCase() === "sale" && "text-brand-accent",
-                  activeCategory === cat.id && "text-brand-accent",
+                  "flex items-center gap-1 px-3.5 font-heading text-sm font-bold uppercase tracking-wide transition-colors duration-200 hover:text-brand-highlight",
+                  onTeal,
+                  cat.label.toLowerCase() === "sale" && "text-brand-highlight",
+                  activeCategory === cat.id && "text-brand-highlight",
                 )}
               >
                 {cat.label}
@@ -97,18 +104,18 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
 
         {/* Right actions */}
         <div className="ml-auto flex items-center gap-0.5">
-          <SearchBox />
+          <SearchBox className={onTeal} />
           <Link
             href="/wishlist"
             aria-label="Wishlist"
-            className="hidden size-10 place-items-center rounded-full transition-colors hover:bg-muted sm:grid"
+            className={cn(iconButton, "hidden sm:grid")}
           >
             <Heart className="size-5" />
           </Link>
           <Link
             href="/account"
             aria-label="Account"
-            className="hidden size-10 place-items-center rounded-full transition-colors hover:bg-muted sm:grid"
+            className={cn(iconButton, "hidden sm:grid")}
           >
             <User className="size-5" />
           </Link>
@@ -120,11 +127,11 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
               openBag();
             }}
             aria-label={`Bag, ${bagCount} items`}
-            className="relative grid size-10 place-items-center rounded-full transition-colors hover:bg-muted"
+            className={cn(iconButton, "relative grid")}
           >
             <ShoppingBag className="size-5" />
             {bagCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-brand-accent px-1 text-[0.65rem] font-bold text-brand-accent-foreground">
+              <span className="absolute -right-0.5 -top-0.5 grid min-w-5 place-items-center rounded-full bg-brand-yellow px-1 text-[0.65rem] font-bold text-brand-ink">
                 {bagCount}
               </span>
             )}
@@ -135,7 +142,7 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
       {/* Mega menu panel */}
       <div
         className={cn(
-          "absolute inset-x-0 top-full hidden origin-top border-b border-border bg-background shadow-lg transition-all duration-200 ease-snappy lg:block",
+          "absolute inset-x-0 top-full hidden origin-top border-b border-border bg-background text-foreground shadow-lg transition-all duration-200 ease-snappy lg:block",
           active
             ? "pointer-events-auto scale-y-100 opacity-100"
             : "pointer-events-none -translate-y-1 opacity-0",

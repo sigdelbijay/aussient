@@ -47,11 +47,12 @@ export function MobileMenu({
         aria-modal="true"
         aria-label="Menu"
         className={cn(
-          "absolute inset-y-0 left-0 flex w-[85%] max-w-sm flex-col bg-background shadow-xl transition-transform duration-200 ease-snappy",
+          "absolute inset-y-0 left-0 flex w-[85%] max-w-sm flex-col bg-background text-foreground shadow-xl transition-transform duration-200 ease-snappy",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-4">
+        {/* Top strip on the logo teal, like the header. */}
+        <div className="flex items-center justify-between bg-brand-teal px-4 py-4 text-brand-teal-foreground">
           {logo ? (
             <Image src={logo} alt={storeName} width={160} height={48} className="h-8 w-auto max-w-40 object-contain" />
           ) : (
@@ -61,7 +62,7 @@ export function MobileMenu({
             type="button"
             onClick={onClose}
             aria-label="Close menu"
-            className="grid size-9 place-items-center rounded-full transition-colors hover:bg-muted"
+            className="grid size-9 place-items-center rounded-full outline-white transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2"
           >
             <X className="size-5" />
           </button>

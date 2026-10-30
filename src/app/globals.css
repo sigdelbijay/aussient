@@ -36,6 +36,7 @@
   --color-brand-orange: var(--brand-orange);
   --color-brand-yellow: var(--brand-yellow);
   --color-brand-blue: var(--brand-blue);
+  --color-brand-highlight: var(--brand-highlight);
 
   /* Snappy motion */
   --ease-snappy: cubic-bezier(0.22, 1, 0.36, 1);
@@ -101,6 +102,9 @@
   --brand-orange: #e56a31; /* the "A" and the base of the heart */
   --brand-yellow: #f2b639; /* the top of the heart and the "T" */
   --brand-blue: #46a3c6; /* the "U" */
+  /* Highlighted text on the teal header (Sale, open menu): the logo yellow,
+     a touch lighter so it passes AA there (#f4c156: 4.6:1 on #245a68). */
+  --brand-highlight: #f4c156;
 
   /* Accent: the logo orange (#e56a31), deepened to pass AA as text on the
      warm white and behind white text (#c04a17: 4.9:1 on white, 4.6:1 on paper). */

@@ -66,7 +66,7 @@ export function SettingsForm({
             <AdminField label="Tagline" error={err("tagline")} hint="e.g. Fashion, accessories & lifestyle">
               <input name="tagline" defaultValue={values.tagline} maxLength={80} className={inputClass} />
             </AdminField>
-            <AdminField label="Logo" error={err("logo")} hint="Shown in the header instead of the store name. A wide PNG or SVG with a see-through background works best." className="sm:col-span-2">
+            <AdminField label="Logo" error={err("logo")} hint="Shown in the header instead of the store name. The header is dark teal, so use a light or colourful logo: a wide PNG or SVG with a see-through background works best." className="sm:col-span-2">
               <ImagePicker config={cloudinary} folder="branding" value={logo} onChange={setLogo} />
             </AdminField>
             <AdminField label="Brand colour" error={err("accentColor")} hint="Buttons, badges and highlights. Blank = the Aussient logo orange.">
