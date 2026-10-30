@@ -22,7 +22,7 @@ export function NewsletterForm({ tone = "dark" }: { tone?: "dark" | "light" }) {
           dark ? "text-brand-paper/80" : "text-foreground",
         )}
       >
-        <Check className="size-4 text-brand-accent" />
+        <Check className={cn("size-4", dark ? "text-brand-orange" : "text-brand-accent")} />
         You&apos;re in — watch your inbox for 10% off.
       </p>
     );
@@ -46,7 +46,7 @@ export function NewsletterForm({ tone = "dark" }: { tone?: "dark" | "light" }) {
         <SubmitArrow />
       </div>
       {state?.error && (
-        <p role="alert" className="text-xs text-brand-accent">
+        <p role="alert" className={cn("text-xs", dark ? "text-brand-orange" : "text-brand-accent")}>
           {state.error}
         </p>
       )}

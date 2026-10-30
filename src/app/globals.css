@@ -7,8 +7,12 @@
 /* ───────────────────────────────────────────────────────────
    Aussient design tokens
    Bold, fast, trendy fashion, accessories and lifestyle.
-   Palette: near-black, warm white, one bright accent (hot pink),
-   and a soft gold. Snappy ~0.18s motion, off for reduced-motion.
+   Palette: near-black, warm white, and the colours of the Aussient
+   logo (sampled from public/brand/aussient-logo-original.jpg):
+   dark teal #245a68, teal-green #2fb69c, orange #e56a31,
+   yellow #f2b639, blue #46a3c6. Buttons use the dark teal; the
+   accent is the logo orange, deepened just enough for AA text.
+   Snappy ~0.18s motion, off for reduced-motion.
    ─────────────────────────────────────────────────────────── */
 
 @theme inline {
@@ -26,6 +30,12 @@
   --color-brand-accent-foreground: var(--brand-accent-foreground);
   --color-brand-gold: var(--brand-gold);
   --color-brand-gold-foreground: var(--brand-gold-foreground);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-teal-foreground: var(--brand-teal-foreground);
+  --color-brand-teal-green: var(--brand-teal-green);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-yellow: var(--brand-yellow);
+  --color-brand-blue: var(--brand-blue);
 
   /* Snappy motion */
   --ease-snappy: cubic-bezier(0.22, 1, 0.36, 1);
@@ -84,9 +94,19 @@
   /* Brand primitives */
   --brand-ink: oklch(0.16 0.005 280); /* near-black */
   --brand-paper: oklch(0.98 0.006 85); /* warm white */
-  --brand-accent: oklch(0.64 0.246 2); /* bright hot pink */
-  --brand-accent-foreground: oklch(0.99 0 0);
-  --brand-gold: oklch(0.82 0.085 85); /* soft gold */
+  /* Logo colours, exactly as in the artwork */
+  --brand-teal: #245a68; /* logo background; white text 7.7:1 */
+  --brand-teal-foreground: #ffffff;
+  --brand-teal-green: #2fb69c; /* the curved mark */
+  --brand-orange: #e56a31; /* the "A" and the base of the heart */
+  --brand-yellow: #f2b639; /* the top of the heart and the "T" */
+  --brand-blue: #46a3c6; /* the "U" */
+
+  /* Accent: the logo orange (#e56a31), deepened to pass AA as text on the
+     warm white and behind white text (#c04a17: 4.9:1 on white, 4.6:1 on paper). */
+  --brand-accent: #c04a17;
+  --brand-accent-foreground: #ffffff;
+  --brand-gold: var(--brand-yellow); /* stars, gold badges */
   --brand-gold-foreground: oklch(0.2 0.02 80);
 
   --radius: 0.5rem;
@@ -99,8 +119,8 @@
   --popover: oklch(1 0 0);
   --popover-foreground: var(--brand-ink);
 
-  --primary: var(--brand-ink); /* solid, bold black buttons */
-  --primary-foreground: var(--brand-paper);
+  --primary: var(--brand-teal); /* solid buttons in the logo's dark teal */
+  --primary-foreground: var(--brand-teal-foreground);
   --secondary: oklch(0.96 0.004 85);
   --secondary-foreground: var(--brand-ink);
   --muted: oklch(0.955 0.004 85);
@@ -111,10 +131,10 @@
 
   --border: oklch(0.9 0.004 85);
   --input: oklch(0.9 0.004 85);
-  --ring: var(--brand-accent);
+  --ring: var(--brand-teal-green);
 
-  --chart-1: var(--brand-accent);
-  --chart-2: var(--brand-gold);
+  --chart-1: var(--brand-teal);
+  --chart-2: var(--brand-orange);
   --chart-3: oklch(0.556 0 0);
   --chart-4: oklch(0.439 0 0);
   --chart-5: oklch(0.269 0 0);
@@ -126,7 +146,7 @@
   --sidebar-accent: oklch(0.955 0.004 85);
   --sidebar-accent-foreground: var(--brand-ink);
   --sidebar-border: oklch(0.9 0.004 85);
-  --sidebar-ring: var(--brand-accent);
+  --sidebar-ring: var(--brand-teal-green);
 }
 
 .dark {

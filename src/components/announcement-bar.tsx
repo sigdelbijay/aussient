@@ -22,7 +22,7 @@ export function AnnouncementBar({
           const content = (
             <>
               {item.text}
-              <span className="text-brand-accent">✦</span>
+              <span className="text-brand-orange">✦</span>
             </>
           );
           const className =
@@ -31,7 +31,7 @@ export function AnnouncementBar({
             <Link
               key={`${item.id}-${i}`}
               href={item.link}
-              className={`${className} hover:text-brand-accent`}
+              className={`${className} hover:text-brand-orange`}
               aria-hidden={hidden || undefined}
               tabIndex={hidden ? -1 : undefined}
             >

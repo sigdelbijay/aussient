@@ -34,7 +34,7 @@ export type SettingsValues = {
   googleAnalyticsId: string;
 };
 
-const DEFAULT_ACCENT = "#e6007e";
+const DEFAULT_ACCENT = "#c04a17"; // --brand-accent in globals.css (the logo orange, AA-safe)
 
 /** Store-wide settings (ADMIN only). */
 export function SettingsForm({
@@ -69,7 +69,7 @@ export function SettingsForm({
             <AdminField label="Logo" error={err("logo")} hint="Shown in the header instead of the store name. A wide PNG or SVG with a see-through background works best." className="sm:col-span-2">
               <ImagePicker config={cloudinary} folder="branding" value={logo} onChange={setLogo} />
             </AdminField>
-            <AdminField label="Brand colour" error={err("accentColor")} hint="Buttons, badges and highlights. Blank = the original pink.">
+            <AdminField label="Brand colour" error={err("accentColor")} hint="Buttons, badges and highlights. Blank = the Aussient logo orange.">
               <span className="flex items-center gap-2">
                 <input type="color" aria-label="Pick the brand colour" value={accent || DEFAULT_ACCENT} onChange={(e) => setAccent(e.target.value)} className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-input bg-background p-1" />
                 <input name="accentColor" value={accent} onChange={(e) => setAccent(e.target.value)} placeholder={DEFAULT_ACCENT} maxLength={7} className={inputClass} />

@@ -81,7 +81,7 @@ export type SiteChrome = {
   settings: {
     storeName: string;
     logo: string | null;
-    /** Brand accent colour (#rrggbb), or null for the built-in pink. */
+    /** Brand accent colour (#rrggbb), or null for the built-in logo orange. */
     accentColor: string | null;
     tagline: string | null;
     metaDescription: string | null;

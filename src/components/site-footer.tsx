@@ -45,7 +45,7 @@ export function SiteFooter({
           <div className="mx-auto grid max-w-7xl grid-cols-1 gap-4 px-4 py-6 sm:grid-cols-3">
             {perks.map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center justify-center gap-2.5 text-sm">
-                <Icon className="size-5 text-brand-accent" />
+                <Icon className="size-5 text-brand-orange" />
                 <span className="font-medium">{text}</span>
               </div>
             ))}
@@ -66,14 +66,14 @@ export function SiteFooter({
             <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-brand-paper/80">
               {settings.supportEmail && (
                 <li>
-                  <a href={`mailto:${settings.supportEmail}`} className="flex items-center gap-2 hover:text-brand-accent">
+                  <a href={`mailto:${settings.supportEmail}`} className="flex items-center gap-2 hover:text-brand-orange">
                     <Mail className="size-4" /> {settings.supportEmail}
                   </a>
                 </li>
               )}
               {settings.contactPhone && (
                 <li>
-                  <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`} className="flex items-center gap-2 hover:text-brand-accent">
+                  <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`} className="flex items-center gap-2 hover:text-brand-orange">
                     <Phone className="size-4" /> {settings.contactPhone}
                   </a>
                 </li>
@@ -88,7 +88,7 @@ export function SiteFooter({
                 aria-label={`${settings.storeName} on ${label} (opens in a new tab)`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="grid size-9 place-items-center rounded-full border border-brand-paper/20 transition-all duration-200 ease-snappy hover:scale-110 hover:border-brand-accent hover:text-brand-accent"
+                className="grid size-9 place-items-center rounded-full border border-brand-paper/20 transition-all duration-200 ease-snappy hover:scale-110 hover:border-brand-orange hover:text-brand-orange"
               >
                 <Icon className="size-4" />
               </a>
@@ -107,7 +107,7 @@ export function SiteFooter({
                 <li key={link.id}>
                   <Link
                     href={link.url}
-                    className="text-brand-paper/80 transition-colors duration-200 hover:text-brand-accent"
+                    className="text-brand-paper/80 transition-colors duration-200 hover:text-brand-orange"
                   >
                     {link.label}
                   </Link>
