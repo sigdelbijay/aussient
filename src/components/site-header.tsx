@@ -29,7 +29,9 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
   const active = menu.find((c) => c.id === activeCategory) ?? null;
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
+    // The frosted background is on a ::before layer, not the header itself: a backdrop
+    // blur on the header would trap the fixed mobile-menu drawer inside the header's box.
+    <header className="sticky top-0 z-50 border-b border-border before:absolute before:inset-0 before:-z-10 before:bg-background/90 before:backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4">
         {/* Mobile menu trigger */}
         <button
