@@ -119,7 +119,11 @@ export function ImageWithText({ config }: { config: ConfigOf<"image-text"> }) {
   );
 }
 
-/** Instagram-style photo grid linking to the profile. */
+/**
+ * Instagram-style photo grid (3 across on phones, 6 on desktop), every tile
+ * linking to the profile. Photos are shown square. When the photos don't fill
+ * the last row of 6, a "Follow" tile takes the next spot (e.g. 11 photos + 1).
+ */
 export function InstagramGrid({
   title,
   config,
@@ -127,11 +131,13 @@ export function InstagramGrid({
   title: string | null;
   config: ConfigOf<"instagram">;
 }) {
+  const images = config.images.slice(0, 12);
+  const followTile = images.length % 6 !== 0;
   return (
     <SectionShell>
       <SectionHeading title={title} link={{ label: `Follow ${config.handle}`, href: config.url }} />
       <div className="grid grid-cols-3 gap-1.5 sm:gap-3 lg:grid-cols-6">
-        {config.images.slice(0, 12).map((img, i) => (
+        {images.map((img, i) => (
           <a
             key={img.src + i}
             href={config.url}
@@ -143,11 +149,22 @@ export function InstagramGrid({
               src={img.src}
               alt={img.alt || `Instagram photo ${i + 1}`}
               fill
-              sizes="(min-width: 1024px) 16vw, 33vw"
+              sizes="(min-width: 1280px) 208px, (min-width: 1024px) 16vw, 33vw"
               className="object-cover transition-transform duration-300 ease-snappy group-hover/insta:scale-105"
             />
           </a>
         ))}
+        {followTile && (
+          <a
+            href={config.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md bg-brand-ink p-2 text-center text-brand-paper transition-colors duration-200 hover:bg-brand-accent hover:text-brand-accent-foreground"
+          >
+            <span className="font-heading text-xs font-bold uppercase tracking-widest sm:text-sm">Follow</span>
+            <span className="break-all text-[0.7rem] sm:text-xs">{config.handle}</span>
+          </a>
+        )}
       </div>
     </SectionShell>
   );

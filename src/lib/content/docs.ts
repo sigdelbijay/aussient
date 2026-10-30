@@ -137,9 +137,13 @@ export function schemaFor(key: DocKey) {
 
 // ── Checks shared by the editors and publishing ─────────────────
 
-/** Pictures must come from the media library (Cloudinary), so the shop can resize them. */
+/**
+ * Pictures must come from the media library (Cloudinary), so the shop can resize
+ * them — or be one of the site's own files in /public/brand or /public/instagram
+ * (e.g. the #WearAussient photos), which next/image resizes too.
+ */
 export function isShopImage(url: string) {
-  return /^https:\/\/(res\.cloudinary\.com|placehold\.co)\//.test(url);
+  return /^https:\/\/(res\.cloudinary\.com|placehold\.co)\//.test(url) || /^\/(brand|instagram)\/[\w-]+\.(webp|png|jpe?g)$/.test(url);
 }
 
 /** A shop link: a page on this site (/sale) or a full web address. */

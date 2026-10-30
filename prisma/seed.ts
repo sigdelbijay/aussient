@@ -23,6 +23,21 @@ const SHOP_TEXT = {
   returnsInfo: "Changed your mind? Return unworn, unused items within 30 days.\nEarrings can't be returned for hygiene reasons unless faulty.\nReturns are free with the prepaid label in your parcel.",
 };
 
+// #WearAussient home grid: [file in /public/instagram, alt text], in the order shown.
+const INSTAGRAM_PHOTOS = [
+  ["ig-01", "Gold-tone crystal drop earrings on black velvet"],
+  ["ig-02", "Crystal tennis necklace on a black display bust"],
+  ["ig-03", "Floral crystal statement stud earring with a sapphire-blue centre stone"],
+  ["ig-04", "Rose-gold round crystal statement stud earring on a display ear"],
+  ["ig-06", "Gold-tone round crystal stud earrings on a warm amber background"],
+  ["ig-09", "Crystal teardrop stud earrings reflected on a dark surface"],
+  ["ig-11", "Gold-set pearl stud earrings on champagne satin"],
+  ["ig-07", "Gold teardrop crystal stud earrings on a dark amber background"],
+  ["ig-08", "Pair of gold-tone round crystal stud earrings against a dark background"],
+  ["ig-05", "Small round crystal stud earring on a display ear"],
+  ["ig-10", "Rose-gold teardrop crystal earrings in a gift box"],
+] as const;
+
 // Finishes every seeded jewellery product comes in (each gets its own SKU, stock and photo).
 const finishes = [
   { name: "Gold", color: "#d8bc7c", bg: "c9a961" },
@@ -687,13 +702,11 @@ async function seedStorefrontContent() {
       {
         type: "instagram",
         title: "#WearAussient",
+        // Square 800×800 WebP photos in /public/instagram (strongest first).
         config: {
-          handle: "@aussient",
-          url: "https://instagram.com/aussient",
-          images: ["ff2d6f", "c9a961", "1a1a1a", "d9a7a0", "b8b8c0", "ff2d6f"].map((bg, i) => ({
-            src: img(`@aussient ${i + 1}`, bg, "800x800"),
-            alt: `Customer photo ${i + 1}`,
-          })),
+          handle: "@aussientptyltd",
+          url: "https://www.instagram.com/aussientptyltd/",
+          images: INSTAGRAM_PHOTOS.map(([file, alt]) => ({ src: `/instagram/${file}.webp`, alt })),
         },
       },
       {
