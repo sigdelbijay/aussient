@@ -10,6 +10,7 @@ import { SearchBox } from "@/components/search-box";
 import { MobileMenu } from "@/components/mobile-menu";
 import { openBag, useBag } from "@/lib/bag-store";
 import type { MenuGroup } from "@/lib/storefront";
+import { BRAND_LOGO } from "@/lib/brand";
 
 export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; storeName: string; logo: string | null }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -41,8 +42,21 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
         </button>
 
         {/* Logo */}
-        <Link href="/" className="font-heading text-xl font-extrabold tracking-tight uppercase lg:text-2xl">
-          {logo ? <Image src={logo} alt={storeName} width={160} height={48} loading="eager" className="h-8 w-auto max-w-40 object-contain lg:h-9" /> : storeName}
+        {/* The logo uploaded in Settings, else the Aussient logo in /public/brand. */}
+        <Link href="/" className="shrink-0">
+          {logo ? (
+            <Image src={logo} alt={storeName} width={160} height={48} loading="eager" className="h-8 w-auto max-w-40 object-contain lg:h-9" />
+          ) : (
+            <Image
+              src={BRAND_LOGO.src}
+              alt={storeName}
+              width={BRAND_LOGO.width}
+              height={BRAND_LOGO.height}
+              loading="eager"
+              sizes="176px"
+              className="h-8 w-auto lg:h-9"
+            />
+          )}
         </Link>
 
         {/* Desktop nav + mega menu */}
@@ -190,7 +204,7 @@ export function SiteHeader({ menu, storeName, logo }: { menu: MenuGroup[]; store
         )}
       </div>
 
-      <MobileMenu menu={menu} storeName={storeName} open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <MobileMenu menu={menu} storeName={storeName} logo={logo} open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </header>
   );
 }

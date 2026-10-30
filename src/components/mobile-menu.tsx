@@ -1,19 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown, Heart, User, X } from "lucide-react";
 import { cn } from "cn";
 import type { MenuGroup } from "@/lib/storefront";
+import { BRAND_LOGO } from "@/lib/brand";
 
 export function MobileMenu({
   menu,
   storeName,
+  logo,
   open,
   onClose,
 }: {
   menu: MenuGroup[];
   storeName: string;
+  logo: string | null;
   open: boolean;
   onClose: () => void;
 }) {
@@ -48,7 +52,11 @@ export function MobileMenu({
         )}
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-4">
-          <span className="font-heading text-lg font-extrabold tracking-tight uppercase">{storeName}</span>
+          {logo ? (
+            <Image src={logo} alt={storeName} width={160} height={48} className="h-8 w-auto max-w-40 object-contain" />
+          ) : (
+            <Image src={BRAND_LOGO.src} alt={storeName} width={BRAND_LOGO.width} height={BRAND_LOGO.height} sizes="160px" className="h-8 w-auto" />
+          )}
           <button
             type="button"
             onClick={onClose}
